@@ -7,6 +7,7 @@
 #include <Dictionary.h>
 #include "common.h"
 #include <QFile>
+#include "dict_utf8.h"
 #include "kana.h"
 #include <QElapsedTimer>
 #include <QSqlError>

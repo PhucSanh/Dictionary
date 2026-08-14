@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Dictionary VERSION 0.1 LANGUAGES CXX)
-
+project(Dictionary VERSION 0.1 LANGUAGES C CXX)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(QT_QML_GENERATE_QMLLS_INI ON)
 
@@ -27,10 +28,18 @@ add_library(dict-core STATIC
     core/entry.h
     core/dictionary.h
     core/dictionary.cpp
+    core/third_party/sqlite3.c core/third_party/sqlite3.h
+    core/dict_types.h
+    core/dict_types.c
+    core/dict_utf8.h
+    core/dict_utf8.c
+    core/dict_kana.h
 
 
 
 )
+set_source_files_properties(core/third_party/sqlite3.c
+    PROPERTIES COMPILE_FLAGS "-w")
 target_link_libraries(dict-core PUBLIC Qt6::Core Qt6::Sql)
 target_include_directories(dict-core PUBLIC core)
 
