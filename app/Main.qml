@@ -5,8 +5,10 @@ import QtQuick.Layouts
 import Dictionary
 ApplicationWindow {
     id: window
-    width: 420
-    height: 760
+    minimumWidth: 420
+    minimumHeight: 760
+
+
     visible: true
     title: qsTr("Từ điển Nhật - Việt")
     color: "#101014"
@@ -19,6 +21,11 @@ ApplicationWindow {
 
     EntryModel{
         id:entryModel
+    }
+    Timer{
+        id: searchTimer
+        interval: 250
+        onTriggered: entryModel.search(searchField.text)
     }
 
     header: ToolBar {
@@ -36,7 +43,8 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             Label {
-                text: qsTr("%1 từ").arg(entryModel.rowCount())
+                visible: entryModel.totalCount>0
+                text: qsTr("%1 kết quả / %2 tổng").arg(entryModel.count).arg(entryModel.totalCount)
                 font.pixelSize: 13
                 color: "#a0a0a8"
             }
@@ -78,6 +86,11 @@ ApplicationWindow {
                 }
             }
         }
+    BusyIndicator {
+        anchors.centerIn: parent
+        running: searchTimer.running
+        visible: running
+    }
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 12
@@ -87,6 +100,7 @@ ApplicationWindow {
             id: searchField
             Layout.fillWidth: true
             placeholderText: qsTr("Tìm theo từ, romaji, kana, nghĩa...")
+            onTextChanged: searchTimer.restart();
         }
 
         ListView {
@@ -116,7 +130,9 @@ ApplicationWindow {
                 Rectangle {
                     anchors.fill: parent
                     radius: 6
-                    color: hoverArea.containsMouse?"blue":"transparent"
+                    color: delegateRoot.ListView.isCurrentItem
+                        ? "#3a5a8c"
+                        : (hoverArea.containsMouse ? "#26262e" : "transparent")
 
                     Behavior on color {
                         ColorAnimation { duration: 120 }
@@ -145,7 +161,7 @@ ApplicationWindow {
                         Label {
 
                             text:  {
-                                const text = delegateRoot.level.size>0? `Level: ${delegateRoot.level}`:'Level: Unknown';
+                                const text = delegateRoot.level.length>0? `Level: ${delegateRoot.level}`:'Level: Unknown';
                                 return text;
                             }
                             font.pixelSize: 11
@@ -186,6 +202,33 @@ ApplicationWindow {
 
                 }
 
+            }
+            Label{
+               anchors.centerIn: parent
+               width: parent.width - 40
+               horizontalAlignment: Text.AlignHCenter
+               wrapMode: Text.WordWrap
+                   visible: entryModel.count === 0 && !searchTimer.running
+                   text: searchField.text.length === 0
+                       ? qsTr("Nhập kanji, kana, romaji hoặc nghĩa tiếng Việt")
+                       : qsTr("Không tìm thấy.\nThử gõ romaji, hoặc gõ nghĩa tiếng Việt")
+                   color: "white"
+                   font.pixelSize: 14
+            }
+            onAtYEndChanged: {
+                if (atYEnd && entryModel.hasMore &&  entryModel.count > 0)
+                    entryModel.loadMore()
+            }
+            footer: Item {
+                width: ListView.view.width
+                height: entryModel.hasMore ? 40 : 0
+                visible: entryModel.hasMore && entryModel.count > 0
+                Label {
+                    anchors.centerIn: parent
+                    text: qsTr("Đang tải thêm...")
+                    color: "#707078"
+                    font.pixelSize: 12
+                }
             }
         }
     }

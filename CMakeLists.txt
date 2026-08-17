@@ -15,41 +15,43 @@ if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/importedcontent/CMakeLists.txt")
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/importedcontent)
 endif()
 
-qt_add_executable(appDictionary
-    main.cpp
-)
+
 add_library(dict-core STATIC
-    core/kana.cpp
-    core/kana.h
-    core/csvreader.cpp
-    core/csvreader.h
-    core/common.cpp
-    core/common.h
-    core/entry.h
-    core/dictionary.h
-    core/dictionary.cpp
+
     core/third_party/sqlite3.c core/third_party/sqlite3.h
     core/dict_types.h
     core/dict_types.c
     core/dict_utf8.h
     core/dict_utf8.c
     core/dict_kana.h
-
-
+    core/dict_kana.c
+    core/dict_db.h
+    core/dict_db.c
 
 )
+target_include_directories(dict-core PUBLIC core core/third_party)
+target_compile_definitions(dict-core PRIVATE SQLITE_ENABLE_FTS5)
+
 set_source_files_properties(core/third_party/sqlite3.c
     PROPERTIES COMPILE_FLAGS "-w")
+target_compile_definitions(dict-core PRIVATE
+    SQLITE_ENABLE_FTS5
+    SQLITE_THREADSAFE=1
+    SQLITE_DEFAULT_FOREIGN_KEYS=1
+    SQLITE_OMIT_DEPRECATED
+)
 target_link_libraries(dict-core PUBLIC Qt6::Core Qt6::Sql)
 target_include_directories(dict-core PUBLIC core)
-
+qt_add_executable(appDictionary app/main.cpp)
+target_include_directories(appDictionary PRIVATE app)
 qt_add_qml_module(appDictionary
     URI Dictionary
-    QML_FILES
-        Main.qml
-    SOURCES
-        core/entrymodel.h
-        core/entrymodel.cpp
+       QML_FILES
+           app/Main.qml
+       SOURCES
+           app/entry.h
+           app/entrymodel.h
+           app/entrymodel.cpp
 
 )
 
@@ -71,6 +73,10 @@ install(TARGETS appDictionary
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-qt_add_executable(importer tool/importer/main.cpp)
+qt_add_executable(importer
+    tool/importer/main.cpp
+    tool/importer/csvreader.h  tool/importer/csvreader.cpp
+    tool/importer/common.h     tool/importer/common.cpp
+)
 target_link_libraries(importer PRIVATE dict-core)
 set_target_properties(importer PROPERTIES WIN32_EXECUTABLE FALSE)

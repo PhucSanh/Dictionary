@@ -1,63 +1,47 @@
 #include "csvreader.h"
-#include <QSqlDatabase>
+#include "common.h"
 #include <QCoreApplication>
 #include <QTextStream>
-#include <QSqlQuery>
 #include <QStringList>
-#include <Dictionary.h>
-#include "common.h"
-#include <QFile>
-#include "dict_utf8.h"
-#include "kana.h"
 #include <QElapsedTimer>
-#include <QSqlError>
-#include <qdebug.h>
+#include <QDebug>
+#include <string.h>
+
+extern "C" {
+#include "dict_db.h"
+#include "dict_kana.h"
+#include "dict_types.h"
+}
+
 int main(int argc,char *argv[]){
    QCoreApplication app(argc, argv);
    QTextStream out(stdout);
 
    QStringList args = QCoreApplication::arguments();
-   if (args.size() < 3) {
+   if (args.size() < 2) {
        out << "Cach dung: importer <input.csv> <output.db>" << Qt::endl;
        return 1;
    }
    const QString csvPath = args.at(1);
    const QString dbPath  = QCoreApplication::applicationDirPath() + "/dictionary.db";
-   if(QFile::exists(dbPath)){
-       QFile::remove(dbPath);
-   }
-   QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
 
-   db.setDatabaseName(dbPath);
-   if(!db.open()){
-       out << "error when open db";
+   DictDb *db = NULL;
+   if (dict_db_create(dbPath.toUtf8().constData(), &db) != DICT_OK) {
+       out << "Khong tao duoc db" << Qt::endl;
+       return 1;
    }
-   QElapsedTimer timer;
-   timer.start();
-   QSqlQuery q(db);
-   const QString createSql = QStringLiteral(
-       "CREATE TABLE words ("
-       "  id           INTEGER PRIMARY KEY AUTOINCREMENT,"
-       "  word         TEXT NOT NULL,"
-       "  reading      TEXT NOT NULL,"
-       "  reading_hira TEXT NOT NULL,"
-       "  romaji       TEXT,"
-       "  part_of_speech          TEXT,"
-       "  meaning   TEXT,"
-       "  english   TEXT,"
-       "  level        TEXT"
-       ")");
-   if(!q.exec(createSql)){
-       out << "error when create sql" << Qt::endl;
-   }
-
    const QVector<QStringList> data = readCsvFile(csvPath);
    int headRow = -1;
-   for(int i=0;i<qMin(10,data.size());i++){
-       if(columnIndex(data.at(i), "word") >= 0){
-           headRow=i;
+   for (int i = 0; i < qMin(10, data.size()); i++) {
+       if (columnIndex(data.at(i), QStringLiteral("word")) >= 0) {
+           headRow = i;
            break;
        }
+   }
+   if (headRow < 0) {
+       out << "Khong tim thay dong tieu de co cot 'word'" << Qt::endl;
+       dict_db_close(db);
+       return 1;
    }
    const QStringList header = data.at(headRow);
    out << "All column" << " " << header.join(QStringLiteral("|")) << Qt::endl;
@@ -73,55 +57,76 @@ int main(int argc,char *argv[]){
    const int iMeaningVi = columnIndex(header, QStringLiteral("meaning"));
    const int iMeaningEn = columnIndex(header, QStringLiteral("english"));
    const int iLevel     = columnIndex(header, QStringLiteral("level"));
-    QSqlQuery insert(db);
-   insert.prepare(QStringLiteral(
-       "INSERT INTO words (word, reading, reading_hira, romaji, part_of_speech, meaning, english, level) "
-       "VALUES (:word, :reading, :reading_hira, :romaji, :part_of_speech, :meaning, :english, :level)"));
-    if (!db.transaction()) {
-        out << "Khong bat dau duoc transaction: " << db.lastError().text() << Qt::endl;
+
+
+    if (dict_db_begin(db) != DICT_OK) {
+        out << "Khong bat dau duoc transaction: " << dict_db_last_error(db) << Qt::endl;
         return 1;
     }
     int inserted = 0, skipped = 0;
     for (int r = headRow+1; r < data.size(); ++r) {
-        const QStringList row = data.at(r);
+
+        const QStringList &row = data.at(r);
+
         const QString word = cell(row, iWord);
         if (word.isEmpty()) { ++skipped; continue; }
-        QString reading = cell(row,iReading);
-        if(reading.isEmpty()) reading = word;
-        QString level = cell(row, iLevel);
-        insert.bindValue(QStringLiteral(":word"),         word);
-        insert.bindValue(QStringLiteral(":reading"),      reading);
-        insert.bindValue(QStringLiteral(":reading_hira"), katakanaToHiragana(reading));
-        insert.bindValue(QStringLiteral(":romaji"),       cell(row, iRomaji));
-        insert.bindValue(QStringLiteral(":part_of_speech"),          cell(row, iPart_of_speech));
-        insert.bindValue(QStringLiteral(":meaning"),   cell(row, iMeaningVi));
-        insert.bindValue(QStringLiteral(":english"),   cell(row, iMeaningEn));
-        insert.bindValue(QStringLiteral(":level"),level.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : QVariant(level));
-        if (!insert.exec()){
-            out << "Error: " << insert.lastError().text() << Qt::endl;
-            db.rollback();
+
+        QString reading = cell(row, iReading);
+        if (reading.isEmpty()) reading = word;
+          const QString level = cell(row, iLevel);
+        DictEntry e;
+        memset(&e, 0, sizeof e);
+
+        QByteArray bWord    = word.toUtf8();
+        QByteArray bReading = reading.toUtf8();
+        QByteArray bRomaji  = cell(row, iRomaji).toUtf8();
+        QByteArray bPos     = cell(row, iPart_of_speech).toUtf8();
+        QByteArray bMeaning = cell(row, iMeaningVi).toUtf8();
+        QByteArray bEnglish = cell(row, iMeaningEn).toUtf8();
+        QByteArray bLevel   = level.toUtf8();
+
+        snprintf(e.word,    sizeof e.word,    "%s", bWord.constData());
+        snprintf(e.reading, sizeof e.reading, "%s", bReading.constData());
+        dict_kana_to_hiragana(e.reading, e.reading_hira, sizeof e.reading_hira);
+        snprintf(e.romaji,         sizeof e.romaji,         "%s", bRomaji.constData());
+        snprintf(e.part_of_speech, sizeof e.part_of_speech, "%s", bPos.constData());
+        snprintf(e.meaning,        sizeof e.meaning,        "%s", bMeaning.constData());
+        snprintf(e.english,        sizeof e.english,        "%s", bEnglish.constData());
+        snprintf(e.level,          sizeof e.level,          "%s", bLevel.constData());
+
+        if (dict_db_insert(db, &e) != DICT_OK) {
+            out << "Insert loi: " << dict_db_last_error(db) << Qt::endl;
+            dict_db_rollback(db);
             return 1;
         }
         inserted++;
     }
-    if (!db.commit()) {
-        out << "COMMIT loi: " << db.lastError().text() << Qt::endl;
+    if (dict_db_commit(db) != DICT_OK) {
+        out << "COMMIT loi: " << dict_db_last_error(db) << Qt::endl;
         return 1;
     }
 
-    q.exec(QStringLiteral("CREATE INDEX idx_words_word   ON words(word         COLLATE NOCASE)"));
-    q.exec(QStringLiteral("CREATE INDEX idx_words_hira   ON words(reading_hira COLLATE NOCASE)"));
-    q.exec(QStringLiteral("CREATE INDEX idx_words_romaji ON words(romaji       COLLATE NOCASE)"));
-    q.exec(QStringLiteral(
-        "CREATE VIRTUAL TABLE words_fts USING fts5(meaning, english)"));
-    q.exec("INSERT INTO words_fts(rowid, meaning, english) "
-           "SELECT id, meaning, english FROM words");
-    out << skipped << " " << inserted << " " << timer.elapsed() << Qt::endl;
-    Dictionary dict(dbPath);
-    qDebug() << "isOpen:" << dict.isOpen() << dict.lastError();
+    if(dict_db_create_indexes(db) != DICT_OK){
+       out << "CREATE INDEX loi: " << dict_db_last_error(db) << Qt::endl;
+    }
+    if (dict_db_create_fts(db) != DICT_OK)
+        out << "FTS5 loi: " << dict_db_last_error(db) << Qt::endl;
+    out << "inserted=" << inserted << " skipped=" << skipped << Qt::endl;
+    out << "db: " << dbPath << Qt::endl;
+    dict_db_close(db);
+    DictDb *rdb = NULL;
+    const QByteArray p = dbPath.toUtf8();
+    int rc1 = dict_db_open(p.constData(), &rdb);
+    DictEntryList list;
+    int rc = dict_db_search_meaning(rdb, "yêu", 10,10, &list);
+    out << "search rc=" << rc << " count=" << list.count << Qt::endl;
 
-    for (const Entry &e : dict.search("あい", 10))
-        qDebug() << e.word << e.reading << e.meaning;
+    for (int i = 0; i < list.count; i++)
+        printf("%s | %s | %s\n", list.items[i].word,
+               list.items[i].reading, list.items[i].meaning);
+
+    dict_entry_list_free(&list);
+
 
    return 0;
 }
