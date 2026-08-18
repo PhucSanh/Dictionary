@@ -52,6 +52,8 @@ qt_add_qml_module(appDictionary
            app/entry.h
            app/entrymodel.h
            app/entrymodel.cpp
+           QML_FILES
+           QML_FILES app/DetailPage.qml
 
 )
 

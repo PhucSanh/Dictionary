@@ -2,7 +2,8 @@
 #include "dict_db.h"
 #include "dict_kana.h"
 #include "dict_types.h"
-
+#include <QGuiApplication>
+#include <QClipboard>
 #include <QCoreApplication>
 
 
@@ -92,6 +93,8 @@ QHash<int, QByteArray> EntryModel::roleNames() const
     roles[MeaningRole] = "meaning";
     roles[PartOfSpeechRole]     = "part_of_speech";
     roles[LevelRole]   = "level";
+    roles[EnglishRole] = "english";
+    roles[IdRole] = "entryId";
     return roles;
 
 }
@@ -148,9 +151,16 @@ void EntryModel::clear()
     endResetModel();
     m_lastQuery.clear();
     m_offset = 0;
+    m_totalCount = 0;
     setHasMore(false);
-
+    emit totalCountChanged();
     emit countChanged();
+
+}
+
+void EntryModel::copyToClipboard(const QString &text)
+{
+    QGuiApplication::clipboard()->setText(text);
 
 }
 

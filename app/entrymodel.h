@@ -15,10 +15,12 @@ class EntryModel : public QAbstractListModel{
     Q_PROPERTY(bool hasMore READ hasMore  NOTIFY hasMoreChanged )
 public:
     enum Roles{
-        WordRole = Qt::UserRole+1,
+        IdRole = Qt::UserRole + 1,
+        WordRole,
         ReadingRole,
         RomajiRole,
         MeaningRole,
+        EnglishRole,
         PartOfSpeechRole,
         LevelRole
     };
@@ -32,6 +34,7 @@ public:
     int totalCount() const;
     Q_INVOKABLE void search(const QString &query);
     Q_INVOKABLE void clear();
+    Q_INVOKABLE void copyToClipboard(const QString &text);
     bool hasMore() const;
     Q_INVOKABLE void loadMore();
 signals:
