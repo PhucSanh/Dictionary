@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
 #include "dict_kana.h"
 const char* SCHEMA_SQL =        "CREATE TABLE words ("
                     "  id           INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -27,9 +29,39 @@ static void set_error(DictDb *db, const char *msg)
     if(db == NULL) return ;
     snprintf(db->last_error,sizeof db->last_error,"%s",msg);
 }
+
 static void copy_col(char*dist, size_t dst_size,sqlite3_stmt* stmt,int col){
   const unsigned char *v = sqlite3_column_text(stmt, col);
     snprintf(dist,dst_size,"%s",v?(const char*)v:"");
+}
+static void fill_note(sqlite3_stmt *stmt, DictNote *n)
+{
+    memset(n, 0, sizeof *n);
+    n->id       = sqlite3_column_int(stmt, 0);
+    n->entry_id = sqlite3_column_int(stmt, 1);
+    copy_col(n->japanese,    sizeof n->japanese,    stmt, 2);
+    copy_col(n->translation, sizeof n->translation, stmt, 3);
+    copy_col(n->note,        sizeof n->note,        stmt, 4);
+}
+static void fill_entry(sqlite3_stmt *stmt, DictEntry *e)
+{
+    memset(e, 0, sizeof *e);
+    e->id = sqlite3_column_int(stmt, 0);
+    copy_col(e->word,           sizeof e->word,           stmt, 1);
+    copy_col(e->reading,        sizeof e->reading,        stmt, 2);
+    copy_col(e->reading_hira,   sizeof e->reading_hira,   stmt, 3);
+    copy_col(e->romaji,         sizeof e->romaji,         stmt, 4);
+    copy_col(e->part_of_speech, sizeof e->part_of_speech, stmt, 5);
+    copy_col(e->meaning,        sizeof e->meaning,        stmt, 6);
+    copy_col(e->english,        sizeof e->english,        stmt, 7);
+    copy_col(e->level,          sizeof e->level,          stmt, 8);
+}
+static void bind_text_or_null(sqlite3_stmt *stmt, int idx, const char *s)
+{
+    if (s == NULL || s[0] == '\0')
+        sqlite3_bind_null(stmt, idx);
+    else
+        sqlite3_bind_text(stmt, idx, s, -1, SQLITE_TRANSIENT);
 }
 void dict_db_close(DictDb *db)
 {
@@ -138,7 +170,7 @@ int dict_db_open(const char *path, DictDb **out)
     if(path == NULL || out == NULL) return DICT_ERR_ARG;
     DictDb* db = (DictDb *)calloc(1,sizeof(DictDb));
     if (db == NULL) return DICT_ERR_NOMEM;
-    if(sqlite3_open_v2(path,&db->handle,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){
+    if(sqlite3_open_v2(path,&db->handle,SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,NULL)!=SQLITE_OK){
         sqlite3_close(db->handle);
         free(db);
         return DICT_ERR_DB;
@@ -187,17 +219,8 @@ int dict_db_search(DictDb *db, const char *search, int limit,int offset, DictEnt
    }
    while (sqlite3_step(stmt) == SQLITE_ROW) {
        DictEntry e;
-       memset(&e, 0, sizeof e);
 
-       e.id = sqlite3_column_int(stmt, 0);
-       copy_col(e.word,           sizeof e.word,           stmt, 1);
-       copy_col(e.reading,        sizeof e.reading,        stmt, 2);
-       copy_col(e.reading_hira,   sizeof e.reading_hira,   stmt, 3);
-       copy_col(e.romaji,         sizeof e.romaji,         stmt, 4);
-       copy_col(e.part_of_speech, sizeof e.part_of_speech, stmt, 5);
-       copy_col(e.meaning,        sizeof e.meaning,        stmt, 6);
-       copy_col(e.english,        sizeof e.english,        stmt, 7);
-       copy_col(e.level,          sizeof e.level,          stmt, 8);
+       fill_entry(stmt,&e);
 
        dict_entry_list_push(out, &e);
    }
@@ -237,18 +260,8 @@ int dict_db_search_meaning(DictDb *db, const char *search, int limit,int offset,
      }
      while (sqlite3_step(stmt) == SQLITE_ROW) {
          DictEntry e;
-         memset(&e, 0, sizeof e);
 
-         e.id = sqlite3_column_int(stmt, 0);
-         copy_col(e.word,           sizeof e.word,           stmt, 1);
-         copy_col(e.reading,        sizeof e.reading,        stmt, 2);
-         copy_col(e.reading_hira,   sizeof e.reading_hira,   stmt, 3);
-         copy_col(e.romaji,         sizeof e.romaji,         stmt, 4);
-         copy_col(e.part_of_speech, sizeof e.part_of_speech, stmt, 5);
-         copy_col(e.meaning,        sizeof e.meaning,        stmt, 6);
-         copy_col(e.english,        sizeof e.english,        stmt, 7);
-         copy_col(e.level,          sizeof e.level,          stmt, 8);
-
+         fill_entry(stmt,&e);
          dict_entry_list_push(out, &e);
      }
      sqlite3_finalize(stmt);
@@ -293,6 +306,332 @@ int dict_db_count_total(DictDb *db, const char *q,int *out_total)
     }
     sqlite3_finalize(stmt);
     *out_total = total;
+    return DICT_OK;
+
+}
+
+int dict_db_attach_user(DictDb *db, const char *user_db_path)
+{
+    if (db == NULL || user_db_path == NULL) return DICT_ERR_ARG;
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle,
+                           "ATTACH DATABASE ? AS userdb", -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_text(stmt, 1, user_db_path, -1, SQLITE_TRANSIENT);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    return exec_sql(db,
+                    "CREATE TABLE IF NOT EXISTS userdb.history ("
+                    "  entry_id  INTEGER PRIMARY KEY,"
+                    "  viewed_at INTEGER NOT NULL);"
+
+                    "CREATE TABLE IF NOT EXISTS userdb.favorites ("
+                    "  entry_id INTEGER PRIMARY KEY,"
+                    "  added_at INTEGER NOT NULL);"
+
+                    "CREATE TABLE IF NOT EXISTS userdb.notes ("
+                    "  id          INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "  entry_id    INTEGER NOT NULL,"
+                    "  japanese    TEXT,"
+                    "  translation TEXT,"
+                    "  note        TEXT,"
+                    "  created_at  INTEGER NOT NULL,"
+                    "  CHECK (japanese IS NOT NULL OR note IS NOT NULL)"
+                    ");"
+
+                    "CREATE INDEX IF NOT EXISTS userdb.idx_notes_entry ON notes(entry_id);");
+
+
+}
+
+int dict_db_add_history(DictDb *db, int entry_id)
+{
+    if (db == NULL) return DICT_ERR_ARG;
+
+    sqlite3_stmt *stmt = NULL;
+    const char *sql =
+        "INSERT INTO userdb.history(entry_id, viewed_at) VALUES(?1, ?2) "
+        "ON CONFLICT(entry_id) DO UPDATE SET viewed_at = excluded.viewed_at";
+
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+
+    sqlite3_bind_int  (stmt, 1, entry_id);
+    sqlite3_bind_int64(stmt, 2, (sqlite3_int64)time(NULL));
+
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    return DICT_OK;
+
+}
+
+
+
+int dict_db_list_history(DictDb *db, int limit, DictEntryList *out)
+{
+    if (db == NULL || out == NULL) return DICT_ERR_ARG;
+    sqlite3_stmt *stmt = NULL;
+    const char *sql = "SELECT w.id, w.word, w.reading, w.reading_hira, w.romaji, "
+                      "       w.part_of_speech, w.meaning, w.english, w.level "
+                      "FROM userdb.history h "
+                      "JOIN words w ON w.id = h.entry_id "
+                      "ORDER BY h.viewed_at DESC "
+                      "LIMIT ?1";
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int (stmt, 1, limit);
+    if (dict_entry_list_init(out, 16) != DICT_OK) {
+        sqlite3_finalize(stmt);
+        return DICT_ERR_NOMEM;
+    }
+    while(sqlite3_step(stmt) == SQLITE_ROW){
+        DictEntry e;
+        fill_entry(stmt,&e);
+        dict_entry_list_push(out,&e);
+    }
+    sqlite3_finalize(stmt);
+    return DICT_OK;
+
+
+}
+
+int dict_db_clear_history(DictDb *db)
+{
+    return exec_sql(db, "DELETE FROM userdb.history");
+}
+
+int dict_db_toggle_favorite(DictDb *db, int entry_id,int *out_is_favorite)
+{
+    if(db == NULL || out_is_favorite == NULL) return DICT_ERR_ARG;
+    sqlite3_stmt *stmt = NULL;
+    const char *sql = "DELETE FROM userdb.favorites WHERE entry_id = ?1";
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt,1,entry_id);
+    sqlite3_step(stmt);
+    int changes = sqlite3_changes(db->handle);
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+    if(changes != 0){
+        *out_is_favorite = 0;
+    }
+    else {
+        const char *sql_insert = "INSERT INTO userdb.favorites(entry_id, added_at) VALUES(?1, ?2)";
+        if (sqlite3_prepare_v2(db->handle, sql_insert, -1, &stmt, NULL) != SQLITE_OK) {
+            set_error(db, sqlite3_errmsg(db->handle));
+            return DICT_ERR_DB;
+        }
+        sqlite3_bind_int(stmt,1,entry_id);
+        sqlite3_bind_int64(stmt, 2, (sqlite3_int64)time(NULL));
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        stmt = NULL;
+        *out_is_favorite = 1;
+
+    }
+    return DICT_OK;
+
+}
+
+
+
+int dict_db_list_favorites(DictDb *db, int limit, DictEntryList *out)
+{
+    if (db == NULL || out == NULL) return DICT_ERR_ARG;
+    sqlite3_stmt *stmt = NULL;
+    const char *sql =
+        "SELECT w.id, w.word, w.reading, w.reading_hira, w.romaji,"
+        " w.part_of_speech, w.meaning, w.english, w.level"
+        " FROM userdb.favorites f"
+        " JOIN words w ON w.id = f.entry_id"
+        " ORDER BY f.added_at DESC"
+        " LIMIT ?1";
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt,1,limit);
+    if (dict_entry_list_init(out, 16) != DICT_OK) {
+        sqlite3_finalize(stmt);
+        return DICT_ERR_NOMEM;
+    }
+    while(sqlite3_step(stmt) == SQLITE_ROW){
+        DictEntry e;
+        fill_entry(stmt,&e);
+        dict_entry_list_push(out,&e);
+    }
+    sqlite3_finalize(stmt);
+    stmt=NULL;
+    return DICT_OK;
+
+
+
+
+}
+
+int dict_db_is_favorite(DictDb *db, int entry_id, int *out)
+{
+    if(db ==NULL || out == NULL) return DICT_ERR_ARG;
+    sqlite3_stmt *stmt = NULL;
+    const char *sql = "SELECT COUNT(*) FROM userdb.favorites WHERE entry_id = ?1";
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt,1,entry_id);
+    if(sqlite3_step(stmt) == SQLITE_ROW){
+       *out = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+    return DICT_OK;
+
+}
+
+int dict_db_update_note(DictDb *db, const DictNote *n)
+{
+    if (db == NULL || n == NULL) return DICT_ERR_ARG;
+    const char *sql =
+        "UPDATE userdb.notes"
+        " SET japanese = ?2, translation = ?3, note = ?4"
+        " WHERE id = ?1";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt, 1, n->id);
+    bind_text_or_null(stmt, 2, n->japanese);
+    bind_text_or_null(stmt, 3, n->translation);
+    bind_text_or_null(stmt, 4, n->note);
+    int rc = sqlite3_step(stmt);
+    int changes = sqlite3_changes(db->handle);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    if (changes == 0) {
+        set_error(db, "update khong thanh cong");
+        return DICT_ERR_ARG;
+    }
+
+    return DICT_OK;
+
+}
+
+int dict_db_add_note(DictDb *db, const DictNote *n, int *out_note_id)
+{
+    if(db == NULL || n == NULL) return DICT_ERR_ARG;
+    const char *sql =
+        "INSERT INTO userdb.notes(entry_id, japanese, translation, note, created_at)"
+        " VALUES(?1, ?2, ?3, ?4, ?5)";
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt,1,n->entry_id);
+    sqlite3_bind_text(stmt,2,n->japanese,-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt,3,n->translation,-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt,4,n->note,-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 5, (sqlite3_int64)time(NULL));
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+    if(rc != SQLITE_DONE){
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    if (out_note_id)
+        *out_note_id = (int)sqlite3_last_insert_rowid(db->handle);
+
+
+    return DICT_OK;
+
+}
+
+int dict_db_delete_note(DictDb *db, int note_id)
+{
+    if(db == NULL) return DICT_ERR_ARG;
+    const char *sql = "DELETE FROM userdb.notes WHERE id = ?1";
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt,1,note_id);
+    int rc = sqlite3_step(stmt);
+    int changes = sqlite3_changes(db->handle);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    if (changes == 0) {
+        set_error(db, "khong tim thay ghi chu");
+        return DICT_ERR_ARG;
+    }
+
+    return DICT_OK;
+
+
+}
+
+int dict_db_list_notes(DictDb *db, int entry_id, DictNoteList *out)
+{
+    if (db == NULL || out == NULL) return DICT_ERR_ARG;
+
+    const char *sql =
+        "SELECT id, entry_id, japanese, translation, note"
+        " FROM userdb.notes"
+        " WHERE entry_id = ?1"
+        " ORDER BY created_at DESC";
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+
+    sqlite3_bind_int(stmt, 1, entry_id);
+
+    if (dict_note_list_init(out, 8) != DICT_OK) {
+        sqlite3_finalize(stmt);
+        return DICT_ERR_NOMEM;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        DictNote n;
+        fill_note(stmt, &n);
+        dict_note_list_push(out, &n);
+    }
+
+    sqlite3_finalize(stmt);
     return DICT_OK;
 
 }

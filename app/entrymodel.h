@@ -13,6 +13,7 @@ class EntryModel : public QAbstractListModel{
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(int totalCount READ totalCount NOTIFY totalCountChanged)
     Q_PROPERTY(bool hasMore READ hasMore  NOTIFY hasMoreChanged )
+    Q_PROPERTY(int mode READ mode NOTIFY modeChanged)
 public:
     enum Roles{
         IdRole = Qt::UserRole + 1,
@@ -37,10 +38,25 @@ public:
     Q_INVOKABLE void copyToClipboard(const QString &text);
     bool hasMore() const;
     Q_INVOKABLE void loadMore();
+    Q_INVOKABLE void addHistory(int entryId);
+    Q_INVOKABLE bool toggleFavorite(int entryId);
+    Q_INVOKABLE bool isFavorite(int entryId);
+    Q_INVOKABLE void showHistory();
+    Q_INVOKABLE void showFavorites();
+    enum Mode { ModeSearch, ModeHistory, ModeFavorites };
+    Q_ENUM(Mode)
+    int mode() const;
+    Q_INVOKABLE QVariantList notesFor(int entryId);
+    Q_INVOKABLE int addNote(int entryId, const QString &jp,
+                            const QString &tr, const QString &note);
+    Q_INVOKABLE bool updateNote(int noteId, int entryId, const QString &jp,
+                                const QString &tr, const QString &note);
+    Q_INVOKABLE bool deleteNote(int noteId);
 signals:
     void countChanged();
     void hasMoreChanged();
     void totalCountChanged();
+     void modeChanged();
 private:
   Entry toEntry(const DictEntry &c) const;
   void setHasMore(bool v);
@@ -53,6 +69,8 @@ private:
   int     m_offset = 0;
   bool    m_hasMore = false;
   int m_totalCount = 0;
+   void setMode(int m);
+  int m_mode = ModeHistory;
 };
 
 

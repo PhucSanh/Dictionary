@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import Dictionary
 ApplicationWindow {
     id: window
-    minimumWidth: 420
+    minimumWidth: 890
     minimumHeight: 760
 
 
@@ -67,7 +67,9 @@ ApplicationWindow {
 
             Label {
                 visible: stackView.depth === 1 && entryModel.totalCount > 0
-                text: qsTr("%1 kết quả / %2 tổng").arg(entryModel.count).arg(entryModel.totalCount)
+                text: entryModel.mode === EntryModel.ModeSearch
+                      ? qsTr("%1 / %2 kết quả").arg(entryModel.count).arg(entryModel.totalCount)
+                      : qsTr("%1 từ").arg(entryModel.count)
                 font.pixelSize: 13
                 color: "#a0a0a8"
             }
@@ -141,6 +143,12 @@ ApplicationWindow {
         anchors.fill: parent
         anchors.margins: 12
         initialItem: searchPage
+        onDepthChanged: {
+           if(depth === 1 && entryModel.mode === EntryModel.ModeFavorites){
+               listView.currentIndex = 0;
+               entryModel.showFavorites();
+           }
+        }
     }
     Component{
         id:searchPage
@@ -154,12 +162,15 @@ ApplicationWindow {
             function openCurrent() {
                 if (listView.currentIndex < 0) return
                 const it = listView.currentItem
+                 if (!it) return
+                entryModel.addHistory(it.entryId)
                 stackView.push(detailPage, {
                     entryId: it.entryId, word: it.word, reading: it.reading,
                     romaji: it.romaji, partOfSpeech: it.part_of_speech,
                     meaning: it.meaning, english: it.english, level: it.level
                 })
             }
+
             TextField {
                 id: searchField
                 Layout.fillWidth: true
@@ -167,13 +178,56 @@ ApplicationWindow {
                 onTextChanged: searchTimer.restart();
                 Keys.onReturnPressed: openCurrent()
             }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                spacing: 8
+                visible: searchField.text.length === 0
 
+                Label {
+                    text: entryModel.mode === EntryModel.ModeFavorites
+                        ? qsTr("Từ vựng yêu thích")
+                        : qsTr("Lịch sử tra cứu")
+                    font.pixelSize: 14
+                    font.bold: true
+                    color: "#a0a0a8"
+                }
+
+                Item { Layout.fillWidth: true }
+
+                ToolButton {
+                    Layout.preferredHeight: 28
+                    background: Rectangle {
+                        radius: 4
+                        color: parent.hovered ? "#2c2c34" : "transparent"
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                    }
+                    contentItem: Label {
+                        text: entryModel.mode === EntryModel.ModeFavorites
+                            ? qsTr("← Lịch sử")
+                            : qsTr("★ Yêu thích")
+                        font.pixelSize: 13
+                        color: "#e0e0e6"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        listView.currentIndex = 0;
+                        if (entryModel.mode === EntryModel.ModeFavorites)
+                            entryModel.showHistory()
+                        else
+                            entryModel.showFavorites()
+                    }
+                }
+            }
+            Component.onCompleted: entryModel.showHistory()
             Timer{
                 id: searchTimer
                 interval: 250
                 onTriggered: {
                     if(searchField.text === ""){
                         entryModel.clear();
+                        entryModel.showHistory();
                     }
                    else  entryModel.search(searchField.text)}
             }

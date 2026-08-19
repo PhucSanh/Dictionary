@@ -5,8 +5,10 @@
 #include <QGuiApplication>
 #include <QClipboard>
 #include <QCoreApplication>
-
-
+#include <QStandardPaths>
+#include <QDir>
+#include <cstdio>
+#include <qcontainerfwd.h>
 
 EntryModel::EntryModel(QObject *parent)
     :QAbstractListModel(parent)
@@ -14,8 +16,16 @@ EntryModel::EntryModel(QObject *parent)
     const QString path = QCoreApplication::applicationDirPath() + "/dictionary.db";
     const QByteArray p = path.toUtf8();
 
-    if (dict_db_open(p.constData(), &m_db) != DICT_OK)
-        qWarning() << "Khong mo duoc db:" << path;
+    int rc = dict_db_open(p.constData(), &m_db);
+    if (rc != DICT_OK) return;
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+
+    const QString userPath = dir + "/user.db";
+    const QByteArray up = userPath.toUtf8();
+    qDebug() << "user.db =" << userPath;
+
+    if (dict_db_attach_user(m_db, up.constData()) != DICT_OK)
+        qWarning() << "Attach user.db loi:" << dict_db_last_error(m_db);
 
 }
 
@@ -58,6 +68,9 @@ QVariant EntryModel::data(const QModelIndex &index, int role) const
     if (!index.isValid() || index.row() < 0 || index.row() >= m_entries.size()) return {};
     const Entry &e = m_entries.at(index.row());
     switch (role) {
+    case IdRole:
+        return e.id;
+        break;
     case WordRole:
         return e.word;
         break;
@@ -76,6 +89,9 @@ QVariant EntryModel::data(const QModelIndex &index, int role) const
     case LevelRole:
         return e.level;
         break;
+    case EnglishRole:
+        return e.english;
+        break;
     default:
         break;
     }
@@ -87,6 +103,7 @@ QVariant EntryModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> EntryModel::roleNames() const
 {
     QHash<int, QByteArray> roles;
+
     roles[WordRole]    = "word";
     roles[ReadingRole] = "reading";
     roles[RomajiRole]  = "romaji";
@@ -134,6 +151,7 @@ void EntryModel::search(const QString &query)
         setFromList(list);
         m_offset = list.count;
         setHasMore(list.count == kPageSize);
+        setMode(ModeSearch);
         dict_entry_list_free(&list);
     }
     else {
@@ -183,6 +201,143 @@ void EntryModel::loadMore()
           dict_entry_list_free(&list);
       }
 
+}
+
+void EntryModel::addHistory(int entryId)
+{
+    if(m_db == nullptr) return;
+    dict_db_add_history(m_db,entryId);
+
+}
+
+bool EntryModel::toggleFavorite(int entryId)
+{
+    if(m_db == nullptr) return false;
+    int fav = 0;
+    dict_db_toggle_favorite(m_db, entryId, &fav);
+    return fav != 0;
+
+
+}
+
+bool EntryModel::isFavorite(int entryId)
+{
+    if (m_db == nullptr) return false;
+    int fav = 0;
+    dict_db_is_favorite(m_db, entryId, &fav);
+    return fav != 0;
+
+}
+
+void EntryModel::showHistory()
+{
+    if (m_db == nullptr) return;
+
+    DictEntryList list = {0};
+    if (dict_db_list_history(m_db, 50, &list) == DICT_OK) {
+        setFromList(list);
+        setMode(ModeHistory);
+        dict_entry_list_free(&list);
+    }
+    m_lastQuery.clear();
+    m_offset = 0;
+    setHasMore(false);
+    setTotalCount(m_entries.size());
+
+}
+
+void EntryModel::showFavorites()
+{
+    if (m_db == nullptr) return;
+
+    DictEntryList list = {0};
+    if (dict_db_list_favorites(m_db, 50, &list) == DICT_OK) {
+        setFromList(list);
+        setMode(ModeFavorites);
+        dict_entry_list_free(&list);
+    }
+    m_lastQuery.clear();
+    m_offset = 0;
+    setHasMore(false);
+    setTotalCount(m_entries.size());
+
+}
+
+int EntryModel::mode() const
+{
+    return m_mode;
+
+}
+
+QVariantList EntryModel::notesFor(int entryId)
+{
+    QVariantList result;
+    if (m_db == nullptr) return result;
+    DictNoteList lists ={0};
+    if(dict_db_list_notes(m_db,entryId,&lists) == DICT_OK){
+        for(int i=0;i<lists.count;i++){
+            const DictNote &value = lists.items[i];
+            QVariantMap m;
+            m["noteId"] = value.id;
+            m["japanese"] = QString::fromUtf8(value.japanese);
+            m["translation"] = QString::fromUtf8(value.translation);
+            m["note"]        = QString::fromUtf8(value.note);
+            result.append(m);
+        }
+        dict_note_list_free(&lists);
+    }
+    return result;
+
+}
+
+int EntryModel::addNote(int entryId, const QString &jp, const QString &tr, const QString &note)
+{
+    if (m_db == nullptr) return DICT_ERR_ARG;
+    DictNote value;
+    memset(&value,0,sizeof(value));
+    value.entry_id = entryId;
+    const QByteArray bjp = jp.toUtf8();
+    const QByteArray btr = tr.toUtf8();
+    const QByteArray bnt = note.toUtf8();
+    snprintf(value.japanese,sizeof value.japanese,"%s",bjp.constData());
+    snprintf(value.translation,sizeof value.translation,"%s",btr.constData());
+    snprintf(value.note,sizeof value.note,"%s",bnt.constData());
+    int id = 0;
+    if(dict_db_add_note(m_db,&value,&id)!=DICT_OK) return 0;
+    return id;
+
+
+}
+
+bool EntryModel::updateNote(int noteId, int entryId, const QString &jp, const QString &tr, const QString &note)
+{
+    if (m_db == nullptr) return DICT_ERR_ARG;
+    DictNote value;
+    memset(&value,0,sizeof(value));
+    value.entry_id = entryId;
+    value.id = noteId;
+    const QByteArray bjp = jp.toUtf8();
+    const QByteArray btr = tr.toUtf8();
+    const QByteArray bnt = note.toUtf8();
+    snprintf(value.japanese,sizeof value.japanese,"%s",bjp.constData());
+    snprintf(value.translation,sizeof value.translation,"%s",btr.constData());
+    snprintf(value.note,sizeof value.note,"%s",bnt.constData());
+    if(dict_db_update_note(m_db,&value) != DICT_OK) return false;
+    return true;
+}
+
+bool EntryModel::deleteNote(int noteId)
+{
+    if (m_db == nullptr) return DICT_ERR_ARG;
+    if(dict_db_delete_note(m_db,noteId)!=DICT_OK) return false;
+    return true;
+
+}
+void EntryModel::setMode(int m)
+{
+    if (m_mode == m) return;
+    m_mode = m;
+    emit modeChanged();
 }
 
 Entry EntryModel::toEntry(const DictEntry &c) const

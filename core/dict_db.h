@@ -19,4 +19,18 @@ void dict_db_close(DictDb *db);
 int dict_db_search(DictDb *db, const char *q, int limit, int offset, DictEntryList *out);
 int dict_db_search_meaning(DictDb *db, const char *q, int limit, int offset, DictEntryList *out);
 int dict_db_count_total(DictDb *db,const char*q,int * out_total);
+int	dict_db_attach_user(DictDb	*db,const  char	*user_db_path);
+int	dict_db_add_history(DictDb	*db,int	entry_id);
+int	dict_db_list_history(DictDb	*db,int	limit,DictEntryList	*out);
+int	dict_db_clear_history(DictDb*db);
+int	dict_db_toggle_favorite(DictDb*db,int	entry_id,int *out_is_favorite);
+int	dict_db_is_favorite(DictDb*db,int	entry_id,	int	*out);
+int	dict_db_list_favorites(DictDb *db,	int	limit,	DictEntryList *out);
+int dict_db_add_note(DictDb *db, const DictNote *n, int *out_note_id);
+
+int dict_db_update_note(DictDb *db, const DictNote *n);
+
+int dict_db_list_notes(DictDb *db, int entry_id, DictNoteList *out);
+
+int dict_db_delete_note(DictDb *db, int note_id);
 #endif // DICT_DB_H

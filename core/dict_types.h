@@ -11,6 +11,8 @@
         #define DICT_MEANING_LEN  128
         #define DICT_ENGLISH_LEN  192
         #define DICT_LEVEL_LEN     8
+        #define DICT_NOTE_LEN 256
+
 
     typedef enum {
         DICT_OK        =  0,
@@ -36,12 +38,25 @@
         int capacity;
 
     }DictEntryList;
+    typedef struct {
+        int  id;
+        int  entry_id;
+        char japanese[DICT_NOTE_LEN];
+        char translation[DICT_NOTE_LEN];
+        char note[DICT_NOTE_LEN];
+    } DictNote;
+
+    typedef struct {
+        DictNote *items;
+        int count;
+        int capacity;
+    } DictNoteList;
     int dict_entry_list_init(DictEntryList *list, int capacity);
-
-
     int dict_entry_list_push(DictEntryList *list, const DictEntry *e);
-
     void dict_entry_list_free(DictEntryList *list);
+    int  dict_note_list_init(DictNoteList *list, int capacity);
+    int  dict_note_list_push(DictNoteList *list, const DictNote *n);
+    void dict_note_list_free(DictNoteList *list);
     #ifdef __cplusplus
     }
     #endif

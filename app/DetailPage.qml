@@ -12,6 +12,15 @@ Item {
     property string meaning: ""
     property string english: ""
     property string level: ""
+    property bool isFav: false
+    property var notes: []
+    function reloadNotes() {
+        root.notes = entryModel.notesFor(root.entryId)
+    }
+    Component.onCompleted: {
+        root.isFav = entryModel.isFavorite(root.entryId)
+        root.reloadNotes()
+    }
     ScrollView {
 
             anchors.fill: parent
@@ -20,7 +29,15 @@ Item {
             ColumnLayout {
                 width: root.width
                 spacing: 10
-
+                Label {
+                    Layout.topMargin: 16
+                    Layout.fillWidth: true
+                    visible: !root.isFav
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Bấm ★ để lưu từ này và thêm ghi chú của riêng bạn")
+                    color: "#707078"
+                    font.pixelSize: 13
+                }
                 RowLayout {
                     Layout.topMargin: 8
                     spacing: 8
@@ -39,6 +56,28 @@ Item {
                         onClicked: entryModel.copyToClipboard(
                             `${root.word}\n${root.reading} · ${root.romaji}\n${root.meaning}`)
                     }
+                    Item { Layout.fillWidth: true }
+
+
+                    ToolButton {
+                            Layout.preferredWidth: 44
+                            Layout.preferredHeight: 44
+                            background: Rectangle {
+                                radius: 4
+                                color: parent.hovered ? "#2c2c34" : "transparent"
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                            }
+                            contentItem: Label {
+                                text: root.isFav ? "★" : "☆"
+                                font.pixelSize: 26
+                                color: root.isFav ? "#f0c040" : "#707078"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: {
+                                root.isFav = entryModel.toggleFavorite(root.entryId)
+                            }
+                        }
                 }
 
                 Label {
@@ -109,8 +148,274 @@ Item {
                         color: "#c8c8d0"
                     }
                 }
+                RowLayout {
+                    Layout.topMargin: 16
+                    Layout.fillWidth: true
+                    visible: root.isFav
 
+                    Label {
+                        text: qsTr("Ghi chú của tôi")
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: "#707078"
+                    }
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        text: qsTr("+ Thêm")
+                        onClicked: noteDialog.openNew()
+                    }
+                }
+
+
+                Repeater {
+                    model: root.isFav ? root.notes : []
+
+                    Rectangle {
+                        id: card
+                        required property var modelData
+
+                        Layout.fillWidth: true
+                        implicitHeight: cardCol.implicitHeight + 16
+                        radius: 6
+                        color: "#1c1c22"
+
+                        ColumnLayout {
+                            id: cardCol
+                            x: 10
+                            y: 10
+                            width: card.width - 20
+                            spacing: 4
+
+                            Label {
+                                Layout.fillWidth: true
+                                visible: card.modelData.japanese.length > 0
+                                wrapMode: Text.WordWrap
+                                text: card.modelData.japanese
+                                font.pixelSize: 16
+                                color: "#e0e0e6"
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: card.modelData.translation.length > 0
+                                wrapMode: Text.WordWrap
+                                text: card.modelData.translation
+                                font.pixelSize: 14
+                                color: "#a0a0a8"
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: card.modelData.note.length > 0
+                                wrapMode: Text.WordWrap
+                                text: "※ " + card.modelData.note
+                                font.pixelSize: 13
+                                color: "#8a8a94"
+                                font.italic: true
+                            }
+
+                            RowLayout {
+                                Layout.topMargin: 4
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                Item { Layout.fillWidth: true }
+
+                                Button {
+                                    text: qsTr("Sửa")
+                                    implicitWidth: 64
+                                    implicitHeight: 28
+                                    flat: true
+                                    contentItem: Label {
+                                        text: parent.text
+                                        font.pixelSize: 12
+                                        color: "#a0a0a8"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        color: parent.hovered ? "#2c2c34" : "transparent"
+                                        radius: 4
+                                    }
+                                    onClicked: noteDialog.openEdit(card.modelData)
+                                }
+
+                                Button {
+                                    text: qsTr("Xoá")
+                                    implicitWidth: 64
+                                    implicitHeight: 28
+                                    flat: true
+                                    contentItem: Label {
+                                        text: parent.text
+                                        font.pixelSize: 12
+                                        color: "#c07070"
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        color: parent.hovered ? "#3a2626" : "transparent"
+                                        radius: 4
+                                    }
+                                    onClicked: {
+                                        entryModel.deleteNote(card.modelData.noteId)
+                                        root.reloadNotes()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Item { Layout.fillHeight: true }
             }
         }
+
+    Dialog{
+        id: noteDialog
+        width: Math.min(root.width-60,560);
+        padding: 28
+        property int editingId: 0
+        function openNew() {
+                editingId = 0
+                jpField.text = ""
+                trField.text = ""
+                noteField.text = ""
+                open()
+            }
+
+            function openEdit(m) {
+                editingId = m.noteId
+                jpField.text = m.japanese
+                trField.text = m.translation
+                noteField.text = m.note
+                open()
+            }
+
+            title: editingId === 0 ? qsTr("Thêm ghi chú") : qsTr("Sửa ghi chú")
+            modal: true
+            anchors.centerIn: Overlay.overlay
+
+
+            background: Rectangle {
+                  color: "#1c1c22"
+                  radius: 8
+                  border.color: "#2c2c34"
+                  border.width: 1
+              }
+            header: Label {
+                    text: noteDialog.title
+                    font.pixelSize: 20
+                    font.bold: true
+                    color: "white"
+                    padding: 20
+                    bottomPadding: 8
+                }
+            Overlay.modal: Rectangle {
+                  color: "#a0000000"
+              }
+
+            ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 15
+
+                    TextField {
+                        id: jpField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Câu tiếng Nhật (tuỳ chọn)")
+                        color: "white"
+                        Keys.onReturnPressed: noteDialog.accept()
+                            Keys.onEnterPressed:  noteDialog.accept()
+                        Layout.preferredHeight: 48
+                            font.pixelSize: 15
+                        placeholderTextColor: "#707078"
+                        background: Rectangle {
+                            color: "#26262e"
+                            radius: 4
+                            border.color: parent.activeFocus ? "#3a5a8c" : "#2c2c34"
+                            border.width: 1
+                        }
+                    }
+                    TextField {
+                        id: trField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Bản dịch (tuỳ chọn)")
+                        color: "white"
+                        Keys.onReturnPressed: noteDialog.accept()
+                            Keys.onEnterPressed:  noteDialog.accept()
+                        Layout.preferredHeight: 48
+                            font.pixelSize: 15
+                        placeholderTextColor: "#707078"
+                        background: Rectangle {
+                            color: "#26262e"
+                            radius: 4
+                            border.color: parent.activeFocus ? "#3a5a8c" : "#2c2c34"
+                            border.width: 1
+                        }
+                    }
+                    TextField {
+                        id: noteField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Ghi chú về từ")
+                        color: "white"
+                        Keys.onReturnPressed: noteDialog.accept()
+                            Keys.onEnterPressed:  noteDialog.accept()
+                        Layout.preferredHeight: 48
+                            font.pixelSize: 15
+                        placeholderTextColor: "#707078"
+                        background: Rectangle {
+                            color: "#26262e"
+                            radius: 4
+                            border.color: parent.activeFocus ? "#3a5a8c" : "#2c2c34"
+                            border.width: 1
+                        }
+                    }
+                }
+            footer: DialogButtonBox {
+                  alignment: Qt.AlignRight
+                  background: Rectangle { color: "transparent" }
+                  padding: 20
+                  topPadding: 8
+
+                  Button {
+                      text: qsTr("Huỷ")
+                      flat: true
+                      DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                      contentItem: Label {
+                          text: parent.text
+                          color: "#a0a0a8"
+                          font.pixelSize: 15
+
+                          horizontalAlignment: Text.AlignHCenter
+                      }
+                      background: Rectangle {
+                          color: parent.hovered ? "#26262e" : "transparent"
+                          radius: 4
+                      }
+                  }
+                  Button {
+                      text: qsTr("Lưu")
+                      DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                      font.pixelSize: 10
+
+                      contentItem: Label {
+                          text: parent.text
+                          color: "white"
+                          font.pixelSize: 15
+                          horizontalAlignment: Text.AlignHCenter
+                      }
+                      background: Rectangle {
+                          color: parent.hovered ? "#4a6a9c" : "#3a5a8c"
+                          radius: 4
+                      }
+                  }
+              }
+            onAccepted: {
+                    if (jpField.text.length === 0 && noteField.text.length === 0)
+                        return
+                    if (editingId === 0)
+                        entryModel.addNote(root.entryId, jpField.text, trField.text, noteField.text)
+                    else
+                        entryModel.updateNote(editingId, root.entryId,
+                                              jpField.text, trField.text, noteField.text)
+                    root.reloadNotes()
+                }
+    }
+
 }

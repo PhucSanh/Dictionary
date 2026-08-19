@@ -4,7 +4,8 @@
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
-
+    QCoreApplication::setOrganizationName("Slazenger");
+    QCoreApplication::setApplicationName("Dictionary");
     QQmlApplicationEngine engine;
     QObject::connect(
         &engine,
