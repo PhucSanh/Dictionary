@@ -1,5 +1,6 @@
 #include "csvreader.h"
 #include "common.h"
+#include "dict_conjugate.h"
 #include <QCoreApplication>
 #include <QTextStream>
 #include <QStringList>
@@ -114,18 +115,7 @@ int main(int argc,char *argv[]){
     out << "inserted=" << inserted << " skipped=" << skipped << Qt::endl;
     out << "db: " << dbPath << Qt::endl;
     dict_db_close(db);
-    DictDb *rdb = NULL;
-    const QByteArray p = dbPath.toUtf8();
-    int rc1 = dict_db_open(p.constData(), &rdb);
-    DictEntryList list;
-    int rc = dict_db_search_meaning(rdb, "yêu", 10,10, &list);
-    out << "search rc=" << rc << " count=" << list.count << Qt::endl;
 
-    for (int i = 0; i < list.count; i++)
-        printf("%s | %s | %s\n", list.items[i].word,
-               list.items[i].reading, list.items[i].meaning);
-
-    dict_entry_list_free(&list);
 
 
    return 0;

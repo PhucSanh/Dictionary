@@ -1,4 +1,5 @@
 #include "entrymodel.h"
+#include "dict_conjugate.h"
 #include "dict_db.h"
 #include "dict_kana.h"
 #include "dict_types.h"
@@ -22,7 +23,7 @@ EntryModel::EntryModel(QObject *parent)
 
     const QString userPath = dir + "/user.db";
     const QByteArray up = userPath.toUtf8();
-    qDebug() << "user.db =" << userPath;
+   // qDebug() << "user.db =" << userPath;
 
     if (dict_db_attach_user(m_db, up.constData()) != DICT_OK)
         qWarning() << "Attach user.db loi:" << dict_db_last_error(m_db);
@@ -92,6 +93,8 @@ QVariant EntryModel::data(const QModelIndex &index, int role) const
     case EnglishRole:
         return e.english;
         break;
+    case ReadingHiraRole:
+        return e.readingHira;
     default:
         break;
     }
@@ -112,6 +115,7 @@ QHash<int, QByteArray> EntryModel::roleNames() const
     roles[LevelRole]   = "level";
     roles[EnglishRole] = "english";
     roles[IdRole] = "entryId";
+    roles[ReadingHiraRole] = "reading_hira";
     return roles;
 
 }
@@ -331,6 +335,28 @@ bool EntryModel::deleteNote(int noteId)
     if (m_db == nullptr) return DICT_ERR_ARG;
     if(dict_db_delete_note(m_db,noteId)!=DICT_OK) return false;
     return true;
+
+}
+
+QVariantList EntryModel::conjugationsFor(const QString &word, const QString &readingHira, const QString &partOfSpeech)
+{
+    QVariantList result;
+
+    const QByteArray bw = word.toUtf8();
+    const QByteArray br = readingHira.toUtf8();
+    const QByteArray bp = partOfSpeech.toUtf8();
+
+    DictForm forms[DICT_MAX_FORMS];
+    int n = dict_conjugate(bw.constData(), br.constData(), bp.constData(),
+                           forms, DICT_MAX_FORMS);
+
+    for (int i = 0; i < n; ++i) {
+        QVariantMap m;
+        m["name"] = QString::fromUtf8(forms[i].name);
+        m["text"] = QString::fromUtf8(forms[i].text);
+        result.append(m);
+    }
+    return result;
 
 }
 void EntryModel::setMode(int m)

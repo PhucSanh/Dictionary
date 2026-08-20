@@ -23,7 +23,8 @@ public:
         MeaningRole,
         EnglishRole,
         PartOfSpeechRole,
-        LevelRole
+        LevelRole,
+        ReadingHiraRole
     };
 
     explicit EntryModel(QObject *parent = nullptr);
@@ -52,6 +53,9 @@ public:
     Q_INVOKABLE bool updateNote(int noteId, int entryId, const QString &jp,
                                 const QString &tr, const QString &note);
     Q_INVOKABLE bool deleteNote(int noteId);
+    Q_INVOKABLE QVariantList conjugationsFor(const QString &word,
+                                             const QString &readingHira,
+                                             const QString &partOfSpeech);
 signals:
     void countChanged();
     void hasMoreChanged();

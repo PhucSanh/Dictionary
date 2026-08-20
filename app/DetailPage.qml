@@ -14,12 +14,15 @@ Item {
     property string level: ""
     property bool isFav: false
     property var notes: []
+    property var conjugations: []
+    property string readingHira: ""
     function reloadNotes() {
         root.notes = entryModel.notesFor(root.entryId)
     }
     Component.onCompleted: {
         root.isFav = entryModel.isFavorite(root.entryId)
         root.reloadNotes()
+        root.conjugations = entryModel.conjugationsFor(root.word, root.readingHira, root.partOfSpeech)
     }
     ScrollView {
 
@@ -146,6 +149,40 @@ Item {
                         text: `${index + 1}. ${modelData}`
                         font.pixelSize: 16
                         color: "#c8c8d0"
+                    }
+                }
+
+                Label {
+                    Layout.topMargin: 16
+                    visible: root.conjugations.length > 0
+                    text: qsTr("Chia động từ")
+                    font.pixelSize: 13
+                    font.bold: true
+                    color: "#707078"
+                }
+                Repeater {
+                    model: root.conjugations
+
+                    RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Label {
+                            Layout.preferredWidth: 120
+                            text: parent.modelData.name
+                            font.pixelSize: 13
+                            color: "#8a8a94"
+                        }
+                        TextEdit {
+                            Layout.fillWidth: true
+                            text: parent.modelData.text
+                            font.pixelSize: 16
+                            color: "#e0e0e6"
+                            readOnly: true
+                            selectByMouse: true
+                            wrapMode: TextEdit.Wrap
+                        }
                     }
                 }
                 RowLayout {

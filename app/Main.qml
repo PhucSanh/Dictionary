@@ -145,7 +145,6 @@ ApplicationWindow {
         initialItem: searchPage
         onDepthChanged: {
            if(depth === 1 && entryModel.mode === EntryModel.ModeFavorites){
-               listView.currentIndex = 0;
                entryModel.showFavorites();
            }
         }
@@ -167,7 +166,8 @@ ApplicationWindow {
                 stackView.push(detailPage, {
                     entryId: it.entryId, word: it.word, reading: it.reading,
                     romaji: it.romaji, partOfSpeech: it.part_of_speech,
-                    meaning: it.meaning, english: it.english, level: it.level
+                    meaning: it.meaning, english: it.english, level: it.level,
+                    readingHira: it.reading_hira
                 })
             }
 
@@ -221,6 +221,14 @@ ApplicationWindow {
                 }
             }
             Component.onCompleted: entryModel.showHistory()
+            Connections {
+                target: stackView
+                function onDepthChanged() {
+                    if (stackView.depth === 1 && entryModel.mode === EntryModel.ModeFavorites) {
+                        listView.currentIndex = 0;
+                    }
+                }
+            }
             Timer{
                 id: searchTimer
                 interval: 250
@@ -260,6 +268,7 @@ ApplicationWindow {
                     required property string level
                     required property int entryId
                     required property string english
+                    required property string reading_hira
                     width: ListView.view.width
                     height: contentColumn.implicitHeight + 16
                     Rectangle {

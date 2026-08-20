@@ -1,5 +1,7 @@
 #include <stddef.h>
+#include <string.h>
 #include "dict_utf8.h"
+#include "dict_types.h"
 int dict_utf8_decode(const char *s, uint32_t *cp)
 {
     if (s == NULL || cp == NULL) return 0;
@@ -68,5 +70,16 @@ int dict_utf8_encode(uint32_t cp, char *out)
         return 4;
     }
     return 0;
+
+}
+
+int dict_utf8_last_offset(const char *s)
+{
+    if(s == NULL || s[0] == '\0') return -1;
+    int i = (int)strlen(s) - 1;
+    while (i > 0 && ((unsigned char)s[i] & 0xC0) == 0x80)
+        i--;
+
+    return i;
 
 }
