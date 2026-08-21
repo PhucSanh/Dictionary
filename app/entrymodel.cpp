@@ -389,6 +389,13 @@ QString EntryModel::deinflectedFrom() const
 
 }
 
+QVariantList EntryModel::flashcards(int limit)
+{
+    QVariantList result;
+    if (m_db == nullptr) return result;
+
+}
+
 void EntryModel::setMode(int m)
 {
     if (m_mode == m) return;

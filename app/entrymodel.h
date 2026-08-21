@@ -60,6 +60,8 @@ public:
                                              const QString &partOfSpeech);
     QString deinflectedTo() const;
     QString deinflectedFrom() const;
+    Q_INVOKABLE QVariantList flashcards(int limit);
+
 signals:
     void countChanged();
     void hasMoreChanged();

@@ -16,6 +16,7 @@ Item {
     property var notes: []
     property var conjugations: []
     property string readingHira: ""
+    property string pageTitle: qsTr("Chi tiết")
     function reloadNotes() {
         root.notes = entryModel.notesFor(root.entryId)
     }

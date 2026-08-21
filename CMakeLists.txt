@@ -34,7 +34,6 @@ add_library(dict-core STATIC
 
 )
 target_include_directories(dict-core PUBLIC core core/third_party)
-target_compile_definitions(dict-core PRIVATE SQLITE_ENABLE_FTS5)
 
 set_source_files_properties(core/third_party/sqlite3.c
     PROPERTIES COMPILE_FLAGS "-w")
@@ -45,19 +44,20 @@ target_compile_definitions(dict-core PRIVATE
     SQLITE_OMIT_DEPRECATED
 )
 target_link_libraries(dict-core PUBLIC Qt6::Core Qt6::Sql)
-target_include_directories(dict-core PUBLIC core)
 qt_add_executable(appDictionary app/main.cpp)
 target_include_directories(appDictionary PRIVATE app)
 qt_add_qml_module(appDictionary
     URI Dictionary
-       QML_FILES
-           app/Main.qml
-       SOURCES
-           app/entry.h
-           app/entrymodel.h
-           app/entrymodel.cpp
-           QML_FILES
-           QML_FILES app/DetailPage.qml
+        QML_FILES
+            app/Main.qml
+            app/DetailPage.qml
+        SOURCES
+            app/entry.h
+            app/entrymodel.h
+            app/entrymodel.cpp
+            QML_FILES app/EntryDelegate.qml
+            QML_FILES app/SearchPage.qml
+            QML_FILES app/FlashcardPage.qml
 
 )
 
