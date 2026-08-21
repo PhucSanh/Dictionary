@@ -45,7 +45,7 @@ int dict_note_list_init(DictNoteList *list, int capacity)
     DictNote *p = (DictNote *) malloc(capacity*sizeof(DictNote));
     if(p == NULL) return DICT_ERR_NOMEM;
     list->items = p;
-    list->count = list->count++;
+    list->count = 0;
     list->capacity = capacity;
     return DICT_OK;
 

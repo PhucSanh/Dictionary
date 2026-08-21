@@ -14,6 +14,8 @@ class EntryModel : public QAbstractListModel{
     Q_PROPERTY(int totalCount READ totalCount NOTIFY totalCountChanged)
     Q_PROPERTY(bool hasMore READ hasMore  NOTIFY hasMoreChanged )
     Q_PROPERTY(int mode READ mode NOTIFY modeChanged)
+    Q_PROPERTY(QString deinflectedFrom READ deinflectedFrom NOTIFY deinflectedChanged)
+    Q_PROPERTY(QString deinflectedTo   READ deinflectedTo   NOTIFY deinflectedChanged)
 public:
     enum Roles{
         IdRole = Qt::UserRole + 1,
@@ -56,11 +58,14 @@ public:
     Q_INVOKABLE QVariantList conjugationsFor(const QString &word,
                                              const QString &readingHira,
                                              const QString &partOfSpeech);
+    QString deinflectedTo() const;
+    QString deinflectedFrom() const;
 signals:
     void countChanged();
     void hasMoreChanged();
     void totalCountChanged();
      void modeChanged();
+    void deinflectedChanged();
 private:
   Entry toEntry(const DictEntry &c) const;
   void setHasMore(bool v);
@@ -75,6 +80,9 @@ private:
   int m_totalCount = 0;
    void setMode(int m);
   int m_mode = ModeHistory;
+   QString m_deinflectedFrom;
+   QString m_deinflectedTo;
+   void setDeinflected(const QString &from, const QString &to);
 };
 
 

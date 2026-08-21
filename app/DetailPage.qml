@@ -152,13 +152,28 @@ Item {
                     }
                 }
 
-                Label {
+                RowLayout {
                     Layout.topMargin: 16
+                    Layout.fillWidth: true
                     visible: root.conjugations.length > 0
-                    text: qsTr("Chia động từ")
-                    font.pixelSize: 13
-                    font.bold: true
-                    color: "#707078"
+
+                    Label {
+                        text: qsTr("Chia động từ")
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: "#707078"
+                    }
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        text: qsTr("Sao chép")
+                        onClicked: {
+                            let s = ""
+                            for (let i = 0; i < root.conjugations.length; i++)
+                                s += root.conjugations[i].name + "\t"
+                                   + root.conjugations[i].text + "\n"
+                            entryModel.copyToClipboard(s)
+                        }
+                    }
                 }
                 Repeater {
                     model: root.conjugations
@@ -174,13 +189,12 @@ Item {
                             font.pixelSize: 13
                             color: "#8a8a94"
                         }
-                        TextEdit {
+                        Label {
                             Layout.fillWidth: true
                             text: parent.modelData.text
                             font.pixelSize: 16
                             color: "#e0e0e6"
-                            readOnly: true
-                            selectByMouse: true
+
                             wrapMode: TextEdit.Wrap
                         }
                     }

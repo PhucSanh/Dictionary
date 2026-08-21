@@ -239,6 +239,22 @@ ApplicationWindow {
                     }
                    else  entryModel.search(searchField.text)}
             }
+            Label {
+                Layout.fillWidth: true
+                Layout.topMargin: 4
+                visible: entryModel.deinflectedFrom.length > 0
+                wrapMode: Text.WordWrap
+                text: qsTr("Dạng gốc của %1 → %2")
+                        .arg(entryModel.deinflectedFrom)
+                        .arg(entryModel.deinflectedTo)
+                font.pixelSize: 13
+                color: "#c0a060"
+                padding: 6
+                background: Rectangle {
+                    color: "#2a2418"
+                    radius: 4
+                }
+            }
             ListView {
                 id: listView
                 Layout.fillWidth: true

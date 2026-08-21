@@ -1,6 +1,7 @@
 #include "entrymodel.h"
 #include "dict_conjugate.h"
 #include "dict_db.h"
+#include "dict_deinflect.h"
 #include "dict_kana.h"
 #include "dict_types.h"
 #include <QGuiApplication>
@@ -134,36 +135,49 @@ int EntryModel::totalCount() const
 void EntryModel::search(const QString &query)
 {
     if (m_db == nullptr) return;
-
-
     const QString q = query.trimmed();
     if (q.isEmpty()) { clear(); return; }
-    if(m_lastQuery!=q){
-        int total= 0;
-        int rc = dict_db_count_total(m_db,q.toUtf8().constData(),&total);
-        if(rc == DICT_OK){
-            setTotalCount(total);
-        }
-    }
-    m_lastQuery = q;
-    m_offset = 0;
 
-    DictEntryList list = {0};
     const QByteArray qb = q.toUtf8();
 
-    if (runQuery(m_db, qb, kPageSize, 0, &list) == DICT_OK) {
-        setFromList(list);
-        m_offset = list.count;
-        setHasMore(list.count == kPageSize);
-        setMode(ModeSearch);
-        dict_entry_list_free(&list);
-    }
-    else {
-         clear();
+    setMode(ModeSearch);
+    m_lastQuery = q;
+    m_offset = 0;
+    setDeinflected("", "");
+
+    DictEntryList list = {0};
+    if (runQuery(m_db, qb, kPageSize, 0, &list) != DICT_OK) {
+        clear();
+        return;
     }
 
+    int total = 0;
+
+    if (list.count > 0) {
+        dict_db_count_total(m_db, qb.constData(), &total);
+    } else {
+        char cands[DICT_MAX_CANDIDATES][DICT_WORD_LEN];
+        int nc = dict_deinflect(qb.constData(), cands, DICT_MAX_CANDIDATES);
+
+        for (int i = 0; i < nc; i++) {
+            dict_entry_list_free(&list);
+
+            if (dict_db_search(m_db, cands[i], kPageSize, 0, &list) == DICT_OK
+                && list.count > 0) {
+                setDeinflected(q, QString::fromUtf8(cands[i]));
+                m_lastQuery = QString::fromUtf8(cands[i]);
+                dict_db_count_total(m_db, cands[i], &total);
+                break;
+            }
+        }
+    }
+
+    setFromList(list);
+    m_offset = list.count;
+    setHasMore(list.count == kPageSize);
+    setTotalCount(total);
+    dict_entry_list_free(&list);
 }
-
 
 
 void EntryModel::clear()
@@ -247,6 +261,7 @@ void EntryModel::showHistory()
     m_offset = 0;
     setHasMore(false);
     setTotalCount(m_entries.size());
+    setDeinflected("","");
 
 }
 
@@ -264,6 +279,8 @@ void EntryModel::showFavorites()
     m_offset = 0;
     setHasMore(false);
     setTotalCount(m_entries.size());
+    setDeinflected("","");
+
 
 }
 
@@ -359,11 +376,32 @@ QVariantList EntryModel::conjugationsFor(const QString &word, const QString &rea
     return result;
 
 }
+
+QString EntryModel::deinflectedTo() const
+{
+    return m_deinflectedTo;
+
+}
+
+QString EntryModel::deinflectedFrom() const
+{
+    return m_deinflectedFrom;
+
+}
+
 void EntryModel::setMode(int m)
 {
     if (m_mode == m) return;
     m_mode = m;
     emit modeChanged();
+}
+
+void EntryModel::setDeinflected(const QString &from, const QString &to)
+{
+    if (m_deinflectedFrom == from && m_deinflectedTo == to) return;
+    m_deinflectedFrom = from;
+    m_deinflectedTo   = to;
+    emit deinflectedChanged();
 }
 
 Entry EntryModel::toEntry(const DictEntry &c) const

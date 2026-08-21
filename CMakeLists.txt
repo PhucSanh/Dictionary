@@ -29,6 +29,8 @@ add_library(dict-core STATIC
     core/dict_db.c
     core/dict_conjugate.h
     core/dict_conjugate.c
+    core/dict_deinflect.h
+    core/dict_deinflect.c
 
 )
 target_include_directories(dict-core PUBLIC core core/third_party)
