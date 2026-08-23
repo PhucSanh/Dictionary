@@ -2,18 +2,23 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Dictionary
 
 Item {
     id: root
     property string pageTitle: qsTr("Flashcard")
-
+    required property EntryModel entryModel
+    property int limit: 0
     property var cards: []
     property int  idx: 0
     property bool revealed: false
-    readonly property var card: cards.length > 0 ? cards[idx] : null
+    readonly property var card: (cards.length > 0 && idx < cards.length) ? cards[idx] : null
 
-    Component.onCompleted: {
-        root.cards = entryModel.flashcards(200)
+    Component.onCompleted: root.reload()
+    StackView.onActivated: root.forceActiveFocus()
+
+    function reload() {
+        root.cards = root.entryModel.flashcards(root.limit)
         root.shuffle()
         root.forceActiveFocus()
     }
@@ -38,17 +43,21 @@ Item {
         root.idx = (root.idx - 1 + root.cards.length) % root.cards.length
         root.revealed = false
     }
+    function flip() { root.revealed = !root.revealed }
 
     focus: true
-    Keys.onSpacePressed:  root.revealed = !root.revealed
+    Keys.onSpacePressed:  root.flip()
+    Keys.onReturnPressed: root.flip()
     Keys.onRightPressed:  root.next()
     Keys.onLeftPressed:   root.prev()
 
     Label {
         anchors.centerIn: parent
+        width: parent.width - 60
         visible: root.cards.length === 0
         text: qsTr("Chưa có từ yêu thích nào.\nBấm ★ ở trang chi tiết để thêm.")
         horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
         color: "#707078"
         font.pixelSize: 14
     }
@@ -66,6 +75,24 @@ Item {
         }
 
         Rectangle {
+            id: progressTrack
+            Layout.fillWidth: true
+            Layout.preferredHeight: 3
+            radius: 2
+            color: "#22222a"
+
+            Rectangle {
+                height: parent.height
+                radius: 2
+                color: "#3a5a8c"
+                width: root.cards.length > 0
+                       ? progressTrack.width * (root.idx + 1) / root.cards.length
+                       : 0
+                Behavior on width { NumberAnimation { duration: 140 } }
+            }
+        }
+
+        Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: 10
@@ -74,9 +101,9 @@ Item {
             border.width: 1
             Behavior on border.color { ColorAnimation { duration: 150 } }
 
-            MouseArea {
-                anchors.fill: parent
-                onClicked: root.revealed = !root.revealed
+            TapHandler {
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+                onTapped: root.flip()
             }
 
             ScrollView {
@@ -120,7 +147,9 @@ Item {
                             font.pixelSize: 14
                         }
                         Rectangle {
-                            Layout.fillWidth: true; height: 1; color: "#2c2c34"
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 1
+                            color: "#2c2c34"
                         }
                         Label {
                             Layout.fillWidth: true
@@ -150,8 +179,11 @@ Item {
                         }
                         Repeater {
                             model: root.card ? root.card.notes : []
+
                             Rectangle {
+                                id: noteBox
                                 required property var modelData
+
                                 Layout.fillWidth: true
                                 color: "#16161a"
                                 radius: 6
@@ -162,29 +194,30 @@ Item {
                                     anchors.left: parent.left
                                     anchors.right: parent.right
                                     anchors.verticalCenter: parent.verticalCenter
-                                    anchors.margins: 10
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
                                     spacing: 3
 
                                     Label {
                                         Layout.fillWidth: true
-                                        visible: parent.parent.modelData.japanese.length > 0
-                                        text: parent.parent.modelData.japanese
+                                        visible: noteBox.modelData.japanese.length > 0
+                                        text: noteBox.modelData.japanese
                                         color: "#e0e0e6"
                                         font.pixelSize: 15
                                         wrapMode: Text.WordWrap
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        visible: parent.parent.modelData.translation.length > 0
-                                        text: parent.parent.modelData.translation
+                                        visible: noteBox.modelData.translation.length > 0
+                                        text: noteBox.modelData.translation
                                         color: "#a0a0a8"
                                         font.pixelSize: 13
                                         wrapMode: Text.WordWrap
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        visible: parent.parent.modelData.note.length > 0
-                                        text: "— " + parent.parent.modelData.note
+                                        visible: noteBox.modelData.note.length > 0
+                                        text: "— " + noteBox.modelData.note
                                         color: "#c8a44a"
                                         font.pixelSize: 12
                                         wrapMode: Text.WordWrap
@@ -200,14 +233,28 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: 8
-            Button { text: qsTr("← Trước"); onClicked: root.prev() }
+
+            Button {
+                text: qsTr("← Trước")
+                focusPolicy: Qt.NoFocus
+                onClicked: { root.prev(); root.forceActiveFocus() }
+            }
             Button {
                 Layout.fillWidth: true
                 text: root.revealed ? qsTr("Úp lại") : qsTr("Lật thẻ")
-                onClicked: root.revealed = !root.revealed
+                focusPolicy: Qt.NoFocus
+                onClicked: { root.flip(); root.forceActiveFocus() }
             }
-            Button { text: qsTr("Sau →");   onClicked: root.next() }
-            Button { text: qsTr("⤨ Xáo");   onClicked: root.shuffle() }
+            Button {
+                text: qsTr("Sau →")
+                focusPolicy: Qt.NoFocus
+                onClicked: { root.next(); root.forceActiveFocus() }
+            }
+            Button {
+                text: qsTr("↻ Xáo")
+                focusPolicy: Qt.NoFocus
+                onClicked: { root.shuffle(); root.forceActiveFocus() }
+            }
         }
     }
 }

@@ -1,472 +1,382 @@
 #include "entrymodel.h"
-#include "dict_conjugate.h"
-#include "dict_db.h"
-#include "dict_deinflect.h"
-#include "dict_kana.h"
-#include "dict_types.h"
-#include <QGuiApplication>
+
 #include <QClipboard>
-#include <QCoreApplication>
-#include <QStandardPaths>
-#include <QDir>
-#include <cstdio>
-#include <qcontainerfwd.h>
+#include <QGuiApplication>
+#include <QVariant>
+#include <utility>
 
-EntryModel::EntryModel(QObject *parent)
-    :QAbstractListModel(parent)
+namespace {
+
+constexpr int kPageSize       = 10;
+constexpr int kHistoryLimit   = 50;
+constexpr int kFavoritesLimit = 50;
+
+QVariantMap toMap(const Note &n)
 {
-    const QString path = QCoreApplication::applicationDirPath() + "/dictionary.db";
-    const QByteArray p = path.toUtf8();
+    QVariantMap m;
+    m["noteId"]      = n.id;
+    m["japanese"]    = n.japanese;
+    m["translation"] = n.translation;
+    m["note"]        = n.note;
+    return m;
+}
 
-    int rc = dict_db_open(p.constData(), &m_db);
-    if (rc != DICT_OK) return;
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-
-    const QString userPath = dir + "/user.db";
-    const QByteArray up = userPath.toUtf8();
-   // qDebug() << "user.db =" << userPath;
-
-    if (dict_db_attach_user(m_db, up.constData()) != DICT_OK)
-        qWarning() << "Attach user.db loi:" << dict_db_last_error(m_db);
+QVariantList toVariantList(const QVector<Note> &notes)
+{
+    QVariantList out;
+    out.reserve(notes.size());
+    for (const Note &n : notes)
+        out.append(toMap(n));
+    return out;
+}
 
 }
 
-EntryModel::~EntryModel()
+EntryModel::EntryModel(std::shared_ptr<IDictionaryRepository> dict,
+                       std::shared_ptr<IUserRepository> user,
+                       std::shared_ptr<ITextAnalyzer> text,
+                       QObject *parent)
+    : QAbstractListModel(parent)
+    , m_dict(std::move(dict))
+    , m_user(std::move(user))
+    , m_text(std::move(text))
 {
-   dict_db_close(m_db);
 }
+
+EntryModel::~EntryModel() = default;
 
 int EntryModel::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid())
         return 0;
     return m_entries.size();
-
-}
-static const int kPageSize = 10;
-
-static int runQuery(DictDb *db, const QByteArray &q, int limit, int offset,
-                    DictEntryList *out)
-{
-    switch (dict_kana_detect(q.constData())) {
-    case DICT_INPUT_VIETNAMESE:
-        return dict_db_search_meaning(db, q.constData(), limit, offset, out);
-
-    case DICT_INPUT_LATIN: {
-        int rc = dict_db_search(db, q.constData(), limit, offset, out);
-        if (rc == DICT_OK && out->count == 0) {
-            dict_entry_list_free(out);
-            rc = dict_db_search_meaning(db, q.constData(), limit, offset, out);
-        }
-        return rc;
-    }
-    default:
-        return dict_db_search(db, q.constData(), limit, offset, out);
-    }
 }
 
 QVariant EntryModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() < 0 || index.row() >= m_entries.size()) return {};
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_entries.size())
+        return {};
+
     const Entry &e = m_entries.at(index.row());
     switch (role) {
-    case IdRole:
-        return e.id;
-        break;
-    case WordRole:
-        return e.word;
-        break;
-    case ReadingRole:
-        return e.reading;
-        break;
-    case RomajiRole:
-        return e.romaji;
-        break;
-    case MeaningRole:
-        return e.meaning;
-        break;
-    case PartOfSpeechRole:
-        return e.partOfSpeech;
-        break;
-    case LevelRole:
-        return e.level;
-        break;
-    case EnglishRole:
-        return e.english;
-        break;
-    case ReadingHiraRole:
-        return e.readingHira;
-    default:
-        break;
+    case IdRole:           return e.id;
+    case WordRole:         return e.word;
+    case ReadingRole:      return e.reading;
+    case ReadingHiraRole:  return e.readingHira;
+    case RomajiRole:       return e.romaji;
+    case PartOfSpeechRole: return e.partOfSpeech;
+    case MeaningRole:      return e.meaning;
+    case EnglishRole:      return e.english;
+    case LevelRole:        return e.level;
+    default:               return {};
     }
-
-    return {};
-
 }
 
 QHash<int, QByteArray> EntryModel::roleNames() const
 {
-    QHash<int, QByteArray> roles;
-
-    roles[WordRole]    = "word";
-    roles[ReadingRole] = "reading";
-    roles[RomajiRole]  = "romaji";
-    roles[MeaningRole] = "meaning";
-    roles[PartOfSpeechRole]     = "part_of_speech";
-    roles[LevelRole]   = "level";
-    roles[EnglishRole] = "english";
-    roles[IdRole] = "entryId";
-    roles[ReadingHiraRole] = "reading_hira";
-    return roles;
-
+    return {
+        { IdRole,           "entryId" },
+        { WordRole,         "word" },
+        { ReadingRole,      "reading" },
+        { ReadingHiraRole,  "reading_hira" },
+        { RomajiRole,       "romaji" },
+        { PartOfSpeechRole, "part_of_speech" },
+        { MeaningRole,      "meaning" },
+        { EnglishRole,      "english" },
+        { LevelRole,        "level" },
+    };
 }
 
-int EntryModel::count() const
-{
-    return m_entries.count();
-}
+int     EntryModel::count() const           { return m_entries.size(); }
+int     EntryModel::totalCount() const      { return m_totalCount; }
+bool    EntryModel::hasMore() const         { return m_hasMore; }
+int     EntryModel::mode() const            { return m_mode; }
+QString EntryModel::deinflectedFrom() const { return m_deinflectedFrom; }
+QString EntryModel::deinflectedTo() const   { return m_deinflectedTo; }
 
-int EntryModel::totalCount() const
+EntryModel::QueryOutcome EntryModel::runQuery(const QString &query,
+                                              int limit, int offset) const
 {
-    return m_totalCount;
+    if (!m_dict || !m_text)
+        return {};
 
+    switch (m_text->detect(query)) {
+    case InputKind::Vietnamese:
+        return { m_dict->searchByMeaning(query, limit, offset), true };
+
+    case InputKind::Latin: {
+        QVector<Entry> byWord = m_dict->searchByWord(query, limit, offset);
+        if (!byWord.isEmpty())
+            return { byWord, false };
+        return { m_dict->searchByMeaning(query, limit, offset), true };
+    }
+
+    default:
+        return { m_dict->searchByWord(query, limit, offset), false };
+    }
 }
 
 void EntryModel::search(const QString &query)
 {
-    if (m_db == nullptr) return;
+    if (!m_dict)
+        return;
+
     const QString q = query.trimmed();
-    if (q.isEmpty()) { clear(); return; }
-
-    const QByteArray qb = q.toUtf8();
-
-    setMode(ModeSearch);
-    m_lastQuery = q;
-    m_offset = 0;
-    setDeinflected("", "");
-
-    DictEntryList list = {0};
-    if (runQuery(m_db, qb, kPageSize, 0, &list) != DICT_OK) {
+    if (q.isEmpty()) {
         clear();
         return;
     }
 
+    setMode(ModeSearch);
+    m_lastQuery = q;
+    m_offset    = 0;
+    setDeinflected(QString(), QString());
+
+    QueryOutcome outcome = runQuery(q, kPageSize, 0);
+    QVector<Entry> entries = outcome.entries;
+    m_usedMeaning = outcome.usedMeaning;
     int total = 0;
 
-    if (list.count > 0) {
-        dict_db_count_total(m_db, qb.constData(), &total);
-    } else {
-        char cands[DICT_MAX_CANDIDATES][DICT_WORD_LEN];
-        int nc = dict_deinflect(qb.constData(), cands, DICT_MAX_CANDIDATES);
+    if (!entries.isEmpty()) {
+        total = m_usedMeaning ? m_dict->countByMeaning(q)
+                              : m_dict->countByWord(q);
+    } else if (m_text) {
+        const QStringList candidates = m_text->deinflect(q);
+        for (const QString &candidate : candidates) {
+            QVector<Entry> found = m_dict->searchByWord(candidate, kPageSize, 0);
+            if (found.isEmpty())
+                continue;
 
-        for (int i = 0; i < nc; i++) {
-            dict_entry_list_free(&list);
-
-            if (dict_db_search(m_db, cands[i], kPageSize, 0, &list) == DICT_OK
-                && list.count > 0) {
-                setDeinflected(q, QString::fromUtf8(cands[i]));
-                m_lastQuery = QString::fromUtf8(cands[i]);
-                dict_db_count_total(m_db, cands[i], &total);
-                break;
-            }
+            setDeinflected(q, candidate);
+            m_lastQuery   = candidate;
+            m_usedMeaning = false;
+            total         = m_dict->countByWord(candidate);
+            entries       = std::move(found);
+            break;
         }
     }
 
-    setFromList(list);
-    m_offset = list.count;
-    setHasMore(list.count == kPageSize);
+    setEntries(entries);
+    m_offset = entries.size();
+    setHasMore(entries.size() == kPageSize);
     setTotalCount(total);
-    dict_entry_list_free(&list);
 }
 
+void EntryModel::loadMore()
+{
+    if (!m_dict || !m_hasMore || m_lastQuery.isEmpty())
+        return;
+
+    const QVector<Entry> more = m_usedMeaning
+        ? m_dict->searchByMeaning(m_lastQuery, kPageSize, m_offset)
+        : m_dict->searchByWord(m_lastQuery, kPageSize, m_offset);
+    appendEntries(more);
+    m_offset += more.size();
+    setHasMore(more.size() == kPageSize);
+}
 
 void EntryModel::clear()
 {
-    beginResetModel();
-    m_entries.clear();
-    endResetModel();
+    setEntries({});
+    m_lastQuery.clear();
+    m_offset      = 0;
+    m_usedMeaning = false;
+    setHasMore(false);
+    setTotalCount(0);
+}
+
+void EntryModel::showHistory()
+{
+    if (!m_user)
+        return;
+
+    setEntries(m_user->recentHistory(kHistoryLimit));
+    setMode(ModeHistory);
+
     m_lastQuery.clear();
     m_offset = 0;
-    m_totalCount = 0;
     setHasMore(false);
-    emit totalCountChanged();
-    emit countChanged();
+    setTotalCount(m_entries.size());
+    setDeinflected(QString(), QString());
+}
 
+void EntryModel::showFavorites()
+{
+    if (!m_user)
+        return;
+
+    setEntries(m_user->favorites(kFavoritesLimit));
+    setMode(ModeFavorites);
+
+    m_lastQuery.clear();
+    m_offset = 0;
+    setHasMore(false);
+    setTotalCount(m_entries.size());
+    setDeinflected(QString(), QString());
+}
+
+void EntryModel::addHistory(int entryId)
+{
+    if (m_user)
+        m_user->addHistory(entryId);
+}
+
+bool EntryModel::toggleFavorite(int entryId)
+{
+    return m_user ? m_user->toggleFavorite(entryId) : false;
+}
+
+bool EntryModel::isFavorite(int entryId)
+{
+    return m_user ? m_user->isFavorite(entryId) : false;
+}
+
+QVariantList EntryModel::notesFor(int entryId)
+{
+    if (!m_user)
+        return {};
+    return toVariantList(m_user->notesFor(entryId));
+}
+
+int EntryModel::addNote(int entryId, const QString &jp,
+                        const QString &tr, const QString &note)
+{
+    if (!m_user)
+        return 0;
+
+    Note n;
+    n.entryId     = entryId;
+    n.japanese    = jp;
+    n.translation = tr;
+    n.note        = note;
+    return m_user->addNote(n);
+}
+
+bool EntryModel::updateNote(int noteId, int entryId, const QString &jp,
+                            const QString &tr, const QString &note)
+{
+    if (!m_user)
+        return false;
+
+    Note n;
+    n.id          = noteId;
+    n.entryId     = entryId;
+    n.japanese    = jp;
+    n.translation = tr;
+    n.note        = note;
+    return m_user->updateNote(n);
+}
+
+bool EntryModel::deleteNote(int noteId)
+{
+    return m_user ? m_user->deleteNote(noteId) : false;
+}
+
+QVariantList EntryModel::conjugationsFor(const QString &word,
+                                         const QString &readingHira,
+                                         const QString &partOfSpeech)
+{
+    if (!m_text)
+        return {};
+
+    QVariantList out;
+    const QVector<ConjugationForm> forms =
+        m_text->conjugate(word, readingHira, partOfSpeech);
+
+    out.reserve(forms.size());
+    for (const ConjugationForm &f : forms) {
+        QVariantMap m;
+        m["name"] = f.name;
+        m["text"] = f.text;
+        out.append(m);
+    }
+    return out;
+}
+
+QVariantList EntryModel::flashcards(int limit)
+{
+    if (!m_user)
+        return {};
+
+    const QVector<Entry>            favorites = m_user->favorites(limit);
+    const QHash<int, QVector<Note>> notes     = m_user->notesForFavorites(limit);
+
+    QVariantList out;
+    out.reserve(favorites.size());
+
+    for (const Entry &e : favorites) {
+        QVariantMap card;
+        card["entryId"]      = e.id;
+        card["word"]         = e.word;
+        card["reading"]      = e.reading;
+        card["readingHira"]  = e.readingHira;
+        card["romaji"]       = e.romaji;
+        card["partOfSpeech"] = e.partOfSpeech;
+        card["meaning"]      = e.meaning;
+        card["english"]      = e.english;
+        card["level"]        = e.level;
+        card["notes"]        = toVariantList(notes.value(e.id));
+        out.append(card);
+    }
+    return out;
 }
 
 void EntryModel::copyToClipboard(const QString &text)
 {
     QGuiApplication::clipboard()->setText(text);
-
 }
 
-bool EntryModel::hasMore() const
+void EntryModel::setEntries(const QVector<Entry> &entries)
 {
-    return m_hasMore;
-
+    beginResetModel();
+    m_entries = entries;
+    endResetModel();
+    emit countChanged();
 }
 
-void EntryModel::loadMore()
+void EntryModel::appendEntries(const QVector<Entry> &entries)
 {
-      if (m_db == nullptr || !m_hasMore || m_lastQuery.isEmpty()) return;
-      DictEntryList list = {0};
-      const QByteArray qb = m_lastQuery.toUtf8();
+    if (entries.isEmpty())
+        return;
 
-      if (runQuery(m_db, qb, kPageSize, m_offset, &list) == DICT_OK) {
-          appendFromList(list);
-          m_offset += list.count;
-          setHasMore(list.count == kPageSize);
-          dict_entry_list_free(&list);
-      }
+    const int first = m_entries.size();
+    const int last  = first + entries.size() - 1;
 
+    beginInsertRows(QModelIndex(), first, last);
+    m_entries.append(entries);
+    endInsertRows();
+    emit countChanged();
 }
 
-void EntryModel::addHistory(int entryId)
+void EntryModel::setHasMore(bool value)
 {
-    if(m_db == nullptr) return;
-    dict_db_add_history(m_db,entryId);
-
+    if (m_hasMore == value)
+        return;
+    m_hasMore = value;
+    emit hasMoreChanged();
 }
 
-bool EntryModel::toggleFavorite(int entryId)
+void EntryModel::setTotalCount(int total)
 {
-    if(m_db == nullptr) return false;
-    int fav = 0;
-    dict_db_toggle_favorite(m_db, entryId, &fav);
-    return fav != 0;
-
-
+    if (m_totalCount == total)
+        return;
+    m_totalCount = total;
+    emit totalCountChanged();
 }
 
-bool EntryModel::isFavorite(int entryId)
+void EntryModel::setMode(int value)
 {
-    if (m_db == nullptr) return false;
-    int fav = 0;
-    dict_db_is_favorite(m_db, entryId, &fav);
-    return fav != 0;
-
-}
-
-void EntryModel::showHistory()
-{
-    if (m_db == nullptr) return;
-
-    DictEntryList list = {0};
-    if (dict_db_list_history(m_db, 50, &list) == DICT_OK) {
-        setFromList(list);
-        setMode(ModeHistory);
-        dict_entry_list_free(&list);
-    }
-    m_lastQuery.clear();
-    m_offset = 0;
-    setHasMore(false);
-    setTotalCount(m_entries.size());
-    setDeinflected("","");
-
-}
-
-void EntryModel::showFavorites()
-{
-    if (m_db == nullptr) return;
-
-    DictEntryList list = {0};
-    if (dict_db_list_favorites(m_db, 50, &list) == DICT_OK) {
-        setFromList(list);
-        setMode(ModeFavorites);
-        dict_entry_list_free(&list);
-    }
-    m_lastQuery.clear();
-    m_offset = 0;
-    setHasMore(false);
-    setTotalCount(m_entries.size());
-    setDeinflected("","");
-
-
-}
-
-int EntryModel::mode() const
-{
-    return m_mode;
-
-}
-
-QVariantList EntryModel::notesFor(int entryId)
-{
-    QVariantList result;
-    if (m_db == nullptr) return result;
-    DictNoteList lists ={0};
-    if(dict_db_list_notes(m_db,entryId,&lists) == DICT_OK){
-        for(int i=0;i<lists.count;i++){
-            const DictNote &value = lists.items[i];
-            QVariantMap m;
-            m["noteId"] = value.id;
-            m["japanese"] = QString::fromUtf8(value.japanese);
-            m["translation"] = QString::fromUtf8(value.translation);
-            m["note"]        = QString::fromUtf8(value.note);
-            result.append(m);
-        }
-        dict_note_list_free(&lists);
-    }
-    return result;
-
-}
-
-int EntryModel::addNote(int entryId, const QString &jp, const QString &tr, const QString &note)
-{
-    if (m_db == nullptr) return DICT_ERR_ARG;
-    DictNote value;
-    memset(&value,0,sizeof(value));
-    value.entry_id = entryId;
-    const QByteArray bjp = jp.toUtf8();
-    const QByteArray btr = tr.toUtf8();
-    const QByteArray bnt = note.toUtf8();
-    snprintf(value.japanese,sizeof value.japanese,"%s",bjp.constData());
-    snprintf(value.translation,sizeof value.translation,"%s",btr.constData());
-    snprintf(value.note,sizeof value.note,"%s",bnt.constData());
-    int id = 0;
-    if(dict_db_add_note(m_db,&value,&id)!=DICT_OK) return 0;
-    return id;
-
-
-}
-
-bool EntryModel::updateNote(int noteId, int entryId, const QString &jp, const QString &tr, const QString &note)
-{
-    if (m_db == nullptr) return DICT_ERR_ARG;
-    DictNote value;
-    memset(&value,0,sizeof(value));
-    value.entry_id = entryId;
-    value.id = noteId;
-    const QByteArray bjp = jp.toUtf8();
-    const QByteArray btr = tr.toUtf8();
-    const QByteArray bnt = note.toUtf8();
-    snprintf(value.japanese,sizeof value.japanese,"%s",bjp.constData());
-    snprintf(value.translation,sizeof value.translation,"%s",btr.constData());
-    snprintf(value.note,sizeof value.note,"%s",bnt.constData());
-    if(dict_db_update_note(m_db,&value) != DICT_OK) return false;
-    return true;
-}
-
-bool EntryModel::deleteNote(int noteId)
-{
-    if (m_db == nullptr) return DICT_ERR_ARG;
-    if(dict_db_delete_note(m_db,noteId)!=DICT_OK) return false;
-    return true;
-
-}
-
-QVariantList EntryModel::conjugationsFor(const QString &word, const QString &readingHira, const QString &partOfSpeech)
-{
-    QVariantList result;
-
-    const QByteArray bw = word.toUtf8();
-    const QByteArray br = readingHira.toUtf8();
-    const QByteArray bp = partOfSpeech.toUtf8();
-
-    DictForm forms[DICT_MAX_FORMS];
-    int n = dict_conjugate(bw.constData(), br.constData(), bp.constData(),
-                           forms, DICT_MAX_FORMS);
-
-    for (int i = 0; i < n; ++i) {
-        QVariantMap m;
-        m["name"] = QString::fromUtf8(forms[i].name);
-        m["text"] = QString::fromUtf8(forms[i].text);
-        result.append(m);
-    }
-    return result;
-
-}
-
-QString EntryModel::deinflectedTo() const
-{
-    return m_deinflectedTo;
-
-}
-
-QString EntryModel::deinflectedFrom() const
-{
-    return m_deinflectedFrom;
-
-}
-
-QVariantList EntryModel::flashcards(int limit)
-{
-    QVariantList result;
-    if (m_db == nullptr) return result;
-
-}
-
-void EntryModel::setMode(int m)
-{
-    if (m_mode == m) return;
-    m_mode = m;
+    if (m_mode == value)
+        return;
+    m_mode = value;
     emit modeChanged();
 }
 
 void EntryModel::setDeinflected(const QString &from, const QString &to)
 {
-    if (m_deinflectedFrom == from && m_deinflectedTo == to) return;
+    if (m_deinflectedFrom == from && m_deinflectedTo == to)
+        return;
     m_deinflectedFrom = from;
     m_deinflectedTo   = to;
     emit deinflectedChanged();
 }
-
-Entry EntryModel::toEntry(const DictEntry &c) const
-{
-    Entry e;
-    e.id           = c.id;
-    e.word         = QString::fromUtf8(c.word);
-    e.reading      = QString::fromUtf8(c.reading);
-    e.readingHira  = QString::fromUtf8(c.reading_hira);
-    e.romaji       = QString::fromUtf8(c.romaji);
-    e.partOfSpeech = QString::fromUtf8(c.part_of_speech);
-    e.meaning      = QString::fromUtf8(c.meaning);
-    e.english      = QString::fromUtf8(c.english);
-    e.level        = QString::fromUtf8(c.level);
-    return e;
-
-}
-
-void EntryModel::setHasMore(bool v)
-{
-    if(m_hasMore == v) return;
-    m_hasMore = v;
-    emit hasMoreChanged();
-
-}
-
-void EntryModel::setTotalCount(int total)
-{
-    m_totalCount = total;
-    emit totalCountChanged();
-
-}
-
-void EntryModel::setFromList(const DictEntryList &list)
-{
-    beginResetModel();
-    m_entries.clear();
-    m_entries.reserve(list.count);
-
-    for (int i = 0; i < list.count; ++i) {
-        m_entries.append(toEntry(list.items[i]));
-    }
-
-    endResetModel();
-    emit countChanged();
-
-}
-
-void EntryModel::appendFromList(const DictEntryList &list)
-{
-    if(list.count == 0) return;
-    const int first = m_entries.size();
-    const int last = first+list.count-1;
-    beginInsertRows(QModelIndex(), first, last);
-    for (int i = 0; i < list.count; ++i)
-        m_entries.append(toEntry(list.items[i]));
-    endInsertRows();
-    emit countChanged();
-
-}
-

@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Dictionary
 Item {
     id: root
 
@@ -17,6 +19,7 @@ Item {
     property var conjugations: []
     property string readingHira: ""
     property string pageTitle: qsTr("Chi tiết")
+    required property EntryModel entryModel
     function reloadNotes() {
         root.notes = entryModel.notesFor(root.entryId)
     }

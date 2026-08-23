@@ -19,9 +19,8 @@ ApplicationWindow {
         base: "#1c1c22"
     }
 
-    EntryModel{
-        id:entryModel
-    }
+
+    required property EntryModel entryModel
 
     header: ToolBar {
         background: Rectangle { color: "#1c1c22" }
@@ -67,10 +66,10 @@ ApplicationWindow {
                   }
 
             Label {
-                visible: stackView.depth === 1 && entryModel.totalCount > 0
-                text: entryModel.mode === EntryModel.ModeSearch
-                      ? qsTr("%1 / %2 kết quả").arg(entryModel.count).arg(entryModel.totalCount)
-                      : qsTr("%1 từ").arg(entryModel.count)
+                visible: stackView.depth === 1 && window.entryModel.totalCount > 0
+                text: window.entryModel.mode === EntryModel.ModeSearch
+                      ? qsTr("%1 / %2 kết quả").arg(window.entryModel.count).arg(window.entryModel.totalCount)
+                      : qsTr("%1 từ").arg(window.entryModel.count)
                 font.pixelSize: 13
                 color: "#a0a0a8"
             }
@@ -138,29 +137,38 @@ ApplicationWindow {
         enabled: stackView.depth === 1
         onActivated: stackView.currentItem.moveUp()
     }
+    Shortcut {
+        sequence: "Ctrl+L"
+        enabled: stackView.depth === 1
+        onActivated: stackView.push(flashcardPage)
+    }
 
     StackView {
         id: stackView
         anchors.fill: parent
         anchors.margins: 12
         initialItem: searchPage
-        onDepthChanged: {
-           if(depth === 1 && entryModel.mode === EntryModel.ModeFavorites){
-               entryModel.showFavorites();
-           }
-        }
+
     }
-    Component{
-        id:searchPage
+    Component {
+        id: searchPage
         SearchPage {
-                onEntryActivated: (p) => stackView.push(detailPage, p)
-                onFlashcardRequested: stackView.push(flashcardPage)
+            entryModel: window.entryModel
+            onEntryActivated: (p) => stackView.push(detailPage, p)
+            onFlashcardRequested: stackView.push(flashcardPage)
         }
     }
     Component {
         id: detailPage
-        DetailPage { }
+        DetailPage {
+            entryModel: window.entryModel
+        }
     }
-    Component { id: flashcardPage; FlashcardPage { } }
+    Component {
+        id: flashcardPage
+        FlashcardPage {
+            entryModel: window.entryModel
+        }
+    }
 
 }

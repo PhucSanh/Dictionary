@@ -125,8 +125,6 @@ int dict_db_begin(DictDb *db)    { return exec_sql(db, "BEGIN"); }
 int dict_db_commit(DictDb *db)   { return exec_sql(db, "COMMIT"); }
 int dict_db_rollback(DictDb *db) { return exec_sql(db, "ROLLBACK"); }
 
-
-
 int dict_db_insert(DictDb *db, const DictEntry *e)
 {
     if (db == NULL || e == NULL) return DICT_ERR_ARG;
@@ -202,7 +200,6 @@ int dict_db_search(DictDb *db, const char *search, int limit,int offset, DictEnt
        "  word "
        "LIMIT ?5 OFFSET ?6";
 
-
    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
        set_error(db, sqlite3_errmsg(db->handle));
        return DICT_ERR_DB;
@@ -267,14 +264,12 @@ int dict_db_search_meaning(DictDb *db, const char *search, int limit,int offset,
      sqlite3_finalize(stmt);
      return DICT_OK;
 
-
 }
 
-int dict_db_count_total(DictDb *db, const char *q,int *out_total)
+int dict_db_count(DictDb *db, const char *q, int is_meaning, int *out_total)
 {
-    if(db == NULL || q == NULL) return DICT_ERR_ARG;
+    if(db == NULL || q == NULL || out_total == NULL) return DICT_ERR_ARG;
     const char *sql = NULL;
-    const int is_meaning = (dict_kana_detect(q) == DICT_INPUT_VIETNAMESE);
     if(is_meaning){
         sql = "SELECT COUNT(*) FROM words_fts WHERE words_fts MATCH ?1";
     }
@@ -307,7 +302,14 @@ int dict_db_count_total(DictDb *db, const char *q,int *out_total)
     sqlite3_finalize(stmt);
     *out_total = total;
     return DICT_OK;
+}
 
+int dict_db_count_total(DictDb *db, const char *q, int *out_total)
+{
+    if(q == NULL) return DICT_ERR_ARG;
+    return dict_db_count(db, q,
+                         dict_kana_detect(q) == DICT_INPUT_VIETNAMESE,
+                         out_total);
 }
 
 int dict_db_attach_user(DictDb *db, const char *user_db_path)
@@ -349,7 +351,6 @@ int dict_db_attach_user(DictDb *db, const char *user_db_path)
 
                     "CREATE INDEX IF NOT EXISTS userdb.idx_notes_entry ON notes(entry_id);");
 
-
 }
 
 int dict_db_add_history(DictDb *db, int entry_id)
@@ -369,7 +370,6 @@ int dict_db_add_history(DictDb *db, int entry_id)
     sqlite3_bind_int  (stmt, 1, entry_id);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)time(NULL));
 
-
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
 
@@ -380,8 +380,6 @@ int dict_db_add_history(DictDb *db, int entry_id)
     return DICT_OK;
 
 }
-
-
 
 int dict_db_list_history(DictDb *db, int limit, DictEntryList *out)
 {
@@ -409,7 +407,6 @@ int dict_db_list_history(DictDb *db, int limit, DictEntryList *out)
     }
     sqlite3_finalize(stmt);
     return DICT_OK;
-
 
 }
 
@@ -453,8 +450,6 @@ int dict_db_toggle_favorite(DictDb *db, int entry_id,int *out_is_favorite)
 
 }
 
-
-
 int dict_db_list_favorites(DictDb *db, int limit, DictEntryList *out)
 {
     if (db == NULL || out == NULL) return DICT_ERR_ARG;
@@ -483,9 +478,6 @@ int dict_db_list_favorites(DictDb *db, int limit, DictEntryList *out)
     sqlite3_finalize(stmt);
     stmt=NULL;
     return DICT_OK;
-
-
-
 
 }
 
@@ -568,7 +560,6 @@ int dict_db_add_note(DictDb *db, const DictNote *n, int *out_note_id)
     if (out_note_id)
         *out_note_id = (int)sqlite3_last_insert_rowid(db->handle);
 
-
     return DICT_OK;
 
 }
@@ -598,7 +589,6 @@ int dict_db_delete_note(DictDb *db, int note_id)
     }
 
     return DICT_OK;
-
 
 }
 
@@ -634,4 +624,41 @@ int dict_db_list_notes(DictDb *db, int entry_id, DictNoteList *out)
     sqlite3_finalize(stmt);
     return DICT_OK;
 
+}
+
+int dict_db_list_favorite_notes(DictDb *db, int limit, DictNoteList *out)
+{
+    if (db == NULL || out == NULL) return DICT_ERR_ARG;
+
+    const char *sql =
+        "SELECT n.id, n.entry_id, n.japanese, n.translation, n.note"
+        " FROM userdb.notes n"
+        " WHERE n.entry_id IN ("
+        "     SELECT f.entry_id FROM userdb.favorites f"
+        "     ORDER BY f.added_at DESC"
+        "     LIMIT ?1"
+        " )"
+        " ORDER BY n.entry_id, n.created_at DESC";
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+
+    sqlite3_bind_int(stmt, 1, limit);
+
+    if (dict_note_list_init(out, 32) != DICT_OK) {
+        sqlite3_finalize(stmt);
+        return DICT_ERR_NOMEM;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        DictNote n;
+        fill_note(stmt, &n);
+        dict_note_list_push(out, &n);
+    }
+
+    sqlite3_finalize(stmt);
+    return DICT_OK;
 }

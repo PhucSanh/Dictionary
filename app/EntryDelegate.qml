@@ -1,6 +1,8 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Dictionary
 Item {
     id: root
     required property int index
@@ -86,8 +88,7 @@ Item {
        anchors.fill: parent
        hoverEnabled: true
        onClicked: {
-           listView.currentIndex = root.index
-           openCurrent();
+           root.activated(root.index);
        }
 
     }

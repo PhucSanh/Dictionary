@@ -3,10 +3,11 @@ cmake_minimum_required(VERSION 3.16)
 project(Dictionary VERSION 0.1 LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(QT_QML_GENERATE_QMLLS_INI ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Sql)
+find_package(Qt6 REQUIRED COMPONENTS Core Quick)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -14,7 +15,6 @@ qt_standard_project_setup(REQUIRES 6.8)
 if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/importedcontent/CMakeLists.txt")
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/importedcontent)
 endif()
-
 
 add_library(dict-core STATIC
 
@@ -43,22 +43,41 @@ target_compile_definitions(dict-core PRIVATE
     SQLITE_DEFAULT_FOREIGN_KEYS=1
     SQLITE_OMIT_DEPRECATED
 )
-target_link_libraries(dict-core PUBLIC Qt6::Core Qt6::Sql)
 qt_add_executable(appDictionary app/main.cpp)
 target_include_directories(appDictionary PRIVATE app)
 qt_add_qml_module(appDictionary
     URI Dictionary
-        QML_FILES
-            app/Main.qml
-            app/DetailPage.qml
-        SOURCES
-            app/entry.h
-            app/entrymodel.h
-            app/entrymodel.cpp
-            QML_FILES app/EntryDelegate.qml
-            QML_FILES app/SearchPage.qml
-            QML_FILES app/FlashcardPage.qml
+    QML_FILES
+        app/Main.qml
+        app/SearchPage.qml
+        app/DetailPage.qml
+        app/FlashcardPage.qml
+        app/EntryDelegate.qml
+    SOURCES
+        app/domain/Entry.h
+        app/domain/Note.h
+        app/domain/ConjugationForm.h
+        app/domain/Flashcard.h
+        app/domain/SearchResult.h
+        app/domain/IDictionaryRepository.h
+        app/domain/IUserRepository.h
+        app/domain/ITextAnalyzer.h
 
+        app/data/DbPaths.h
+        app/data/DbPaths.cpp
+        app/data/DictDbConnection.h
+        app/data/DictDbConnection.cpp
+        app/data/DictMapping.h
+        app/data/DictMapping.cpp
+        app/data/DictionaryRepository.h
+        app/data/DictionaryRepository.cpp
+        app/data/UserRepository.h
+        app/data/UserRepository.cpp
+        app/data/CoreTextAnalyzer.h
+        app/data/CoreTextAnalyzer.cpp
+
+        app/entrymodel.h
+        app/entrymodel.cpp
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -84,5 +103,5 @@ qt_add_executable(importer
     tool/importer/csvreader.h  tool/importer/csvreader.cpp
     tool/importer/common.h     tool/importer/common.cpp
 )
-target_link_libraries(importer PRIVATE dict-core)
+target_link_libraries(importer PRIVATE dict-core Qt6::Core)
 set_target_properties(importer PROPERTIES WIN32_EXECUTABLE FALSE)

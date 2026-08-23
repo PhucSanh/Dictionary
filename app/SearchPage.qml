@@ -1,9 +1,12 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Dictionary
 ColumnLayout {
     id: root
        property string pageTitle: qsTr("Từ điển Nhật - Việt")
+       required property EntryModel entryModel
 
        signal entryActivated(var payload)
        signal flashcardRequested()
@@ -72,16 +75,39 @@ ColumnLayout {
                        entryModel.showFavorites()
                }
            }
-       }
-       Component.onCompleted: entryModel.showHistory()
-       Connections {
-           target: stackView
-           function onDepthChanged() {
-               if (stackView.depth === 1 && entryModel.mode === EntryModel.ModeFavorites) {
-                   listView.currentIndex = 0;
+
+           ToolButton {
+               id: flashcardButton
+               Layout.preferredHeight: 28
+               ToolTip.visible: flashcardButton.hovered
+               ToolTip.text: qsTr("Học các từ đã đánh dấu ★ bằng thẻ ghi nhớ (Ctrl+L)")
+               background: Rectangle {
+                   radius: 4
+                   color: flashcardButton.hovered ? "#2c2c34" : "transparent"
+                   Behavior on color { ColorAnimation { duration: 120 } }
                }
+               contentItem: Label {
+                   text: qsTr("Flashcard ▸")
+                   font.pixelSize: 13
+                   color: "#e0e0e6"
+                   horizontalAlignment: Text.AlignHCenter
+                   verticalAlignment: Text.AlignVCenter
+               }
+               onClicked: root.flashcardRequested()
            }
        }
+       StackView.onActivated: {
+           if (searchField.text.length > 0)
+               return
+
+           if (entryModel.mode === EntryModel.ModeFavorites) {
+               entryModel.showFavorites()
+               listView.currentIndex = 0
+           } else {
+               entryModel.showHistory()
+           }
+       }
+
        Timer{
            id: searchTimer
            interval: 250
