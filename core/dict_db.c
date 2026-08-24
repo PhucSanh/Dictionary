@@ -56,6 +56,18 @@ static void fill_entry(sqlite3_stmt *stmt, DictEntry *e)
     copy_col(e->english,        sizeof e->english,        stmt, 7);
     copy_col(e->level,          sizeof e->level,          stmt, 8);
 }
+static void fill_favorite_entry(sqlite3_stmt *stmt, DictEntry *e)
+{
+    fill_entry(stmt, e);
+    copy_col(e->categories, sizeof e->categories, stmt, 9);
+}
+static void fill_category(sqlite3_stmt *stmt, DictCategory *c)
+{
+    memset(c, 0, sizeof *c);
+    c->id = sqlite3_column_int(stmt, 0);
+    copy_col(c->name, sizeof c->name, stmt, 1);
+    c->entry_count = sqlite3_column_int(stmt, 2);
+}
 static void bind_text_or_null(sqlite3_stmt *stmt, int idx, const char *s)
 {
     if (s == NULL || s[0] == '\0')
@@ -330,26 +342,41 @@ int dict_db_attach_user(DictDb *db, const char *user_db_path)
         set_error(db, sqlite3_errmsg(db->handle));
         return DICT_ERR_DB;
     }
-    return exec_sql(db,
-                    "CREATE TABLE IF NOT EXISTS userdb.history ("
-                    "  entry_id  INTEGER PRIMARY KEY,"
-                    "  viewed_at INTEGER NOT NULL);"
+    if (exec_sql(db,
+                 "CREATE TABLE IF NOT EXISTS userdb.history ("
+                 "  entry_id  INTEGER PRIMARY KEY,"
+                 "  viewed_at INTEGER NOT NULL);"
 
-                    "CREATE TABLE IF NOT EXISTS userdb.favorites ("
-                    "  entry_id INTEGER PRIMARY KEY,"
-                    "  added_at INTEGER NOT NULL);"
+                 "CREATE TABLE IF NOT EXISTS userdb.favorites ("
+                 "  entry_id INTEGER PRIMARY KEY,"
+                 "  added_at INTEGER NOT NULL);"
 
-                    "CREATE TABLE IF NOT EXISTS userdb.notes ("
-                    "  id          INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    "  entry_id    INTEGER NOT NULL,"
-                    "  japanese    TEXT,"
-                    "  translation TEXT,"
-                    "  note        TEXT,"
-                    "  created_at  INTEGER NOT NULL,"
-                    "  CHECK (japanese IS NOT NULL OR note IS NOT NULL)"
-                    ");"
+                 "CREATE TABLE IF NOT EXISTS userdb.notes ("
+                 "  id          INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 "  entry_id    INTEGER NOT NULL,"
+                 "  japanese    TEXT,"
+                 "  translation TEXT,"
+                 "  note        TEXT,"
+                 "  created_at  INTEGER NOT NULL,"
+                 "  CHECK (japanese IS NOT NULL OR note IS NOT NULL)"
+                 ");"
 
-                    "CREATE INDEX IF NOT EXISTS userdb.idx_notes_entry ON notes(entry_id);");
+                 "CREATE TABLE IF NOT EXISTS userdb.categories ("
+                 "  id         INTEGER PRIMARY KEY AUTOINCREMENT,"
+                 "  name       TEXT NOT NULL UNIQUE,"
+                 "  created_at INTEGER NOT NULL);"
+
+                 "CREATE TABLE IF NOT EXISTS userdb.favorite_categories ("
+                 "  entry_id    INTEGER NOT NULL,"
+                 "  category_id INTEGER NOT NULL,"
+                 "  PRIMARY KEY (entry_id, category_id));"
+
+                 "CREATE INDEX IF NOT EXISTS userdb.idx_notes_entry ON notes(entry_id);"
+                 "CREATE INDEX IF NOT EXISTS userdb.idx_favcat_category"
+                 " ON favorite_categories(category_id);") != DICT_OK)
+        return DICT_ERR_DB;
+
+    return DICT_OK;
 
 }
 
@@ -430,6 +457,15 @@ int dict_db_toggle_favorite(DictDb *db, int entry_id,int *out_is_favorite)
     sqlite3_finalize(stmt);
     stmt = NULL;
     if(changes != 0){
+        const char *sql_unlink = "DELETE FROM userdb.favorite_categories WHERE entry_id = ?1";
+        if (sqlite3_prepare_v2(db->handle, sql_unlink, -1, &stmt, NULL) != SQLITE_OK) {
+            set_error(db, sqlite3_errmsg(db->handle));
+            return DICT_ERR_DB;
+        }
+        sqlite3_bind_int(stmt,1,entry_id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        stmt = NULL;
         *out_is_favorite = 0;
     }
     else {
@@ -450,35 +486,74 @@ int dict_db_toggle_favorite(DictDb *db, int entry_id,int *out_is_favorite)
 
 }
 
-int dict_db_list_favorites(DictDb *db, int limit, DictEntryList *out)
+int dict_db_list_favorites_in_category(DictDb *db, int category_id, int limit, DictEntryList *out)
 {
     if (db == NULL || out == NULL) return DICT_ERR_ARG;
     sqlite3_stmt *stmt = NULL;
     const char *sql =
         "SELECT w.id, w.word, w.reading, w.reading_hira, w.romaji,"
-        " w.part_of_speech, w.meaning, w.english, w.level"
+        " w.part_of_speech, w.meaning, w.english, w.level,"
+        " (SELECT group_concat(c.name, ', ')"
+        "    FROM userdb.favorite_categories fc"
+        "    JOIN userdb.categories c ON c.id = fc.category_id"
+        "   WHERE fc.entry_id = f.entry_id)"
         " FROM userdb.favorites f"
         " JOIN words w ON w.id = f.entry_id"
+        " WHERE ?1 <= 0 OR EXISTS ("
+        "     SELECT 1 FROM userdb.favorite_categories fk"
+        "      WHERE fk.entry_id = f.entry_id AND fk.category_id = ?1)"
         " ORDER BY f.added_at DESC"
-        " LIMIT ?1";
+        " LIMIT ?2";
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
         set_error(db, sqlite3_errmsg(db->handle));
         return DICT_ERR_DB;
     }
-    sqlite3_bind_int(stmt,1,limit);
+    sqlite3_bind_int(stmt,1,category_id);
+    sqlite3_bind_int(stmt,2,limit);
     if (dict_entry_list_init(out, 16) != DICT_OK) {
         sqlite3_finalize(stmt);
         return DICT_ERR_NOMEM;
     }
     while(sqlite3_step(stmt) == SQLITE_ROW){
         DictEntry e;
-        fill_entry(stmt,&e);
+        fill_favorite_entry(stmt,&e);
         dict_entry_list_push(out,&e);
     }
     sqlite3_finalize(stmt);
     stmt=NULL;
     return DICT_OK;
 
+}
+
+int dict_db_list_favorites(DictDb *db, int limit, DictEntryList *out)
+{
+    return dict_db_list_favorites_in_category(db, 0, limit, out);
+}
+
+int dict_db_count_favorites(DictDb *db, int category_id, int *out_total)
+{
+    if (db == NULL || out_total == NULL) return DICT_ERR_ARG;
+
+    const char *sql =
+        "SELECT COUNT(*) FROM userdb.favorites f"
+        " WHERE ?1 <= 0 OR EXISTS ("
+        "     SELECT 1 FROM userdb.favorite_categories fc"
+        "      WHERE fc.entry_id = f.entry_id AND fc.category_id = ?1)";
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt, 1, category_id);
+
+    int total = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+        total = sqlite3_column_int(stmt, 0);
+
+    sqlite3_finalize(stmt);
+    *out_total = total;
+    return DICT_OK;
 }
 
 int dict_db_is_favorite(DictDb *db, int entry_id, int *out)
@@ -626,7 +701,7 @@ int dict_db_list_notes(DictDb *db, int entry_id, DictNoteList *out)
 
 }
 
-int dict_db_list_favorite_notes(DictDb *db, int limit, DictNoteList *out)
+int dict_db_list_favorite_notes_in_category(DictDb *db, int category_id, int limit, DictNoteList *out)
 {
     if (db == NULL || out == NULL) return DICT_ERR_ARG;
 
@@ -635,8 +710,11 @@ int dict_db_list_favorite_notes(DictDb *db, int limit, DictNoteList *out)
         " FROM userdb.notes n"
         " WHERE n.entry_id IN ("
         "     SELECT f.entry_id FROM userdb.favorites f"
+        "      WHERE ?1 <= 0 OR EXISTS ("
+        "          SELECT 1 FROM userdb.favorite_categories fc"
+        "           WHERE fc.entry_id = f.entry_id AND fc.category_id = ?1)"
         "     ORDER BY f.added_at DESC"
-        "     LIMIT ?1"
+        "     LIMIT ?2"
         " )"
         " ORDER BY n.entry_id, n.created_at DESC";
 
@@ -646,7 +724,8 @@ int dict_db_list_favorite_notes(DictDb *db, int limit, DictNoteList *out)
         return DICT_ERR_DB;
     }
 
-    sqlite3_bind_int(stmt, 1, limit);
+    sqlite3_bind_int(stmt, 1, category_id);
+    sqlite3_bind_int(stmt, 2, limit);
 
     if (dict_note_list_init(out, 32) != DICT_OK) {
         sqlite3_finalize(stmt);
@@ -657,6 +736,272 @@ int dict_db_list_favorite_notes(DictDb *db, int limit, DictNoteList *out)
         DictNote n;
         fill_note(stmt, &n);
         dict_note_list_push(out, &n);
+    }
+
+    sqlite3_finalize(stmt);
+    return DICT_OK;
+}
+
+int dict_db_list_favorite_notes(DictDb *db, int limit, DictNoteList *out)
+{
+    return dict_db_list_favorite_notes_in_category(db, 0, limit, out);
+}
+
+int dict_db_list_categories(DictDb *db, DictCategoryList *out)
+{
+    if (db == NULL || out == NULL) return DICT_ERR_ARG;
+
+    const char *sql =
+        "SELECT c.id, c.name,"
+        " (SELECT COUNT(*) FROM userdb.favorite_categories fc"
+        "   WHERE fc.category_id = c.id)"
+        " FROM userdb.categories c"
+        " ORDER BY c.id";
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+
+    if (dict_category_list_init(out, 8) != DICT_OK) {
+        sqlite3_finalize(stmt);
+        return DICT_ERR_NOMEM;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        DictCategory c;
+        fill_category(stmt, &c);
+        dict_category_list_push(out, &c);
+    }
+
+    sqlite3_finalize(stmt);
+    return DICT_OK;
+}
+
+int dict_db_add_category(DictDb *db, const char *name, int *out_id)
+{
+    if (db == NULL || name == NULL || name[0] == '\0') return DICT_ERR_ARG;
+
+    sqlite3_stmt *stmt = NULL;
+    const char *sql =
+        "INSERT OR IGNORE INTO userdb.categories(name, created_at) VALUES(?1, ?2)";
+
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_text (stmt, 1, name, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, (sqlite3_int64)time(NULL));
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+
+    if (out_id == NULL)
+        return DICT_OK;
+
+    *out_id = 0;
+    if (sqlite3_prepare_v2(db->handle,
+                           "SELECT id FROM userdb.categories WHERE name = ?1",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+        *out_id = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return DICT_OK;
+}
+
+int dict_db_rename_category(DictDb *db, int category_id, const char *name)
+{
+    if (db == NULL || name == NULL || name[0] == '\0') return DICT_ERR_ARG;
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle,
+                           "UPDATE userdb.categories SET name = ?2 WHERE id = ?1",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int (stmt, 1, category_id);
+    sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    return DICT_OK;
+}
+
+int dict_db_delete_category(DictDb *db, int category_id)
+{
+    if (db == NULL || category_id <= 0) return DICT_ERR_ARG;
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle,
+                           "DELETE FROM userdb.favorite_categories WHERE category_id = ?1",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt, 1, category_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+
+    if (sqlite3_prepare_v2(db->handle,
+                           "DELETE FROM userdb.categories WHERE id = ?1",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt, 1, category_id);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    return DICT_OK;
+}
+
+static int link_categories(DictDb *db, int entry_id, const int *category_ids, int n)
+{
+    if (category_ids == NULL || n <= 0)
+        return DICT_OK;
+
+    sqlite3_stmt *stmt = NULL;
+    const char *sql =
+        "INSERT OR IGNORE INTO userdb.favorite_categories(entry_id, category_id)"
+        " VALUES(?1, ?2)";
+
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+
+    for (int i = 0; i < n; ++i) {
+        if (category_ids[i] <= 0) continue;
+        sqlite3_reset(stmt);
+        sqlite3_bind_int(stmt, 1, entry_id);
+        sqlite3_bind_int(stmt, 2, category_ids[i]);
+        sqlite3_step(stmt);
+    }
+
+    sqlite3_finalize(stmt);
+    return DICT_OK;
+}
+
+static int unlink_categories(DictDb *db, int entry_id)
+{
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle,
+                           "DELETE FROM userdb.favorite_categories WHERE entry_id = ?1",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt, 1, entry_id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    return DICT_OK;
+}
+
+int dict_db_add_favorite(DictDb *db, int entry_id, const int *category_ids, int n)
+{
+    if (db == NULL || entry_id <= 0) return DICT_ERR_ARG;
+
+    sqlite3_stmt *stmt = NULL;
+    const char *sql =
+        "INSERT INTO userdb.favorites(entry_id, added_at) VALUES(?1, ?2)"
+        " ON CONFLICT(entry_id) DO UPDATE SET added_at = excluded.added_at";
+
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int  (stmt, 1, entry_id);
+    sqlite3_bind_int64(stmt, 2, (sqlite3_int64)time(NULL));
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    return link_categories(db, entry_id, category_ids, n);
+}
+
+int dict_db_remove_favorite(DictDb *db, int entry_id)
+{
+    if (db == NULL || entry_id <= 0) return DICT_ERR_ARG;
+
+    if (unlink_categories(db, entry_id) != DICT_OK)
+        return DICT_ERR_DB;
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle,
+                           "DELETE FROM userdb.favorites WHERE entry_id = ?1",
+                           -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt, 1, entry_id);
+
+    int rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    return DICT_OK;
+}
+
+int dict_db_set_favorite_categories(DictDb *db, int entry_id, const int *category_ids, int n)
+{
+    if (db == NULL || entry_id <= 0) return DICT_ERR_ARG;
+
+    if (unlink_categories(db, entry_id) != DICT_OK)
+        return DICT_ERR_DB;
+    return link_categories(db, entry_id, category_ids, n);
+}
+
+int dict_db_list_entry_categories(DictDb *db, int entry_id, DictCategoryList *out)
+{
+    if (db == NULL || out == NULL) return DICT_ERR_ARG;
+
+    const char *sql =
+        "SELECT c.id, c.name, 0"
+        " FROM userdb.favorite_categories fc"
+        " JOIN userdb.categories c ON c.id = fc.category_id"
+        " WHERE fc.entry_id = ?1"
+        " ORDER BY c.id";
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+    sqlite3_bind_int(stmt, 1, entry_id);
+
+    if (dict_category_list_init(out, 4) != DICT_OK) {
+        sqlite3_finalize(stmt);
+        return DICT_ERR_NOMEM;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        DictCategory c;
+        fill_category(stmt, &c);
+        dict_category_list_push(out, &c);
     }
 
     sqlite3_finalize(stmt);

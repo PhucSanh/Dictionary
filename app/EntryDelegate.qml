@@ -15,6 +15,7 @@ Item {
     required property int entryId
     required property string english
     required property string reading_hira
+    required property string categories
     signal activated(int row)
     width: ListView.view ? ListView.view.width : 0
     height: contentColumn.implicitHeight + 16
@@ -49,6 +50,14 @@ Item {
 
             }
             Item { Layout.fillWidth: true }
+            Label {
+                visible: root.categories.length > 0
+                text: root.categories
+                font.pixelSize: 11
+                color: "#f0c040"
+                padding: 3
+                background: Rectangle { color: "#2a2418"; radius: 3 }
+            }
             Label {
 
                 text:  {

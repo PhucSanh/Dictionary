@@ -11,6 +11,7 @@ struct Entry {
     QString meaning;
     QString english;
     QString level;
+    QString categories;
 
     bool isValid() const { return id > 0; }
 };

@@ -53,7 +53,9 @@ qt_add_qml_module(appDictionary
         app/DetailPage.qml
         app/FlashcardPage.qml
         app/EntryDelegate.qml
+        app/CategoryDialog.qml
     SOURCES
+        app/domain/Category.h
         app/domain/Entry.h
         app/domain/Note.h
         app/domain/ConjugationForm.h

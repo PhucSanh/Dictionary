@@ -9,7 +9,7 @@ ColumnLayout {
        required property EntryModel entryModel
 
        signal entryActivated(var payload)
-       signal flashcardRequested()
+       signal flashcardRequested(int categoryId)
 
        function focusSearch() { searchField.forceActiveFocus() }
        function moveDown()    { listView.incrementCurrentIndex() }
@@ -72,7 +72,7 @@ ColumnLayout {
                    if (entryModel.mode === EntryModel.ModeFavorites)
                        entryModel.showHistory()
                    else
-                       entryModel.showFavorites()
+                       entryModel.showFavorites(entryModel.categoryFilter)
                }
            }
 
@@ -80,7 +80,7 @@ ColumnLayout {
                id: flashcardButton
                Layout.preferredHeight: 28
                ToolTip.visible: flashcardButton.hovered
-               ToolTip.text: qsTr("Học các từ đã đánh dấu ★ bằng thẻ ghi nhớ (Ctrl+L)")
+               ToolTip.text: qsTr("Học các từ đã đánh dấu ★ theo từng loại (Ctrl+L)")
                background: Rectangle {
                    radius: 4
                    color: flashcardButton.hovered ? "#2c2c34" : "transparent"
@@ -93,15 +93,109 @@ ColumnLayout {
                    horizontalAlignment: Text.AlignHCenter
                    verticalAlignment: Text.AlignVCenter
                }
-               onClicked: root.flashcardRequested()
+               onClicked: root.flashcardRequested(entryModel.categoryFilter)
            }
        }
+
+       RowLayout {
+           Layout.fillWidth: true
+           Layout.topMargin: 2
+           spacing: 8
+           visible: searchField.text.length === 0
+                    && entryModel.mode === EntryModel.ModeFavorites
+
+           Flickable {
+               id: filterStrip
+               Layout.fillWidth: true
+               Layout.preferredHeight: 34
+               contentWidth: filterRow.width
+               clip: true
+               flickableDirection: Flickable.HorizontalFlick
+               boundsBehavior: Flickable.StopAtBounds
+
+               Row {
+                   id: filterRow
+                   spacing: 6
+
+                   Repeater {
+                       model: [{ categoryId: 0, name: qsTr("Tất cả"), entryCount: 0 }]
+                              .concat(root.entryModel.categories)
+
+                       Rectangle {
+                           id: filterChip
+                           required property var modelData
+
+                           readonly property bool selected:
+                               root.entryModel.categoryFilter === filterChip.modelData.categoryId
+
+                           width: chipLabel.implicitWidth + 24
+                           height: 30
+                           radius: 15
+                           color: filterChip.selected ? "#3a5a8c" : "#26262e"
+                           border.color: filterChip.selected ? "#5a7aac" : "#2c2c34"
+                           border.width: 1
+
+                           Behavior on color { ColorAnimation { duration: 120 } }
+
+                           Label {
+                               id: chipLabel
+                               anchors.centerIn: parent
+                               text: filterChip.modelData.entryCount > 0
+                                     ? `${filterChip.modelData.name} (${filterChip.modelData.entryCount})`
+                                     : filterChip.modelData.name
+                               font.pixelSize: 13
+                               color: filterChip.selected ? "white" : "#a0a0a8"
+                           }
+
+                           TapHandler {
+                               onTapped: {
+                                   listView.currentIndex = 0
+                                   root.entryModel.showFavorites(filterChip.modelData.categoryId)
+                               }
+                           }
+                       }
+                   }
+               }
+           }
+
+           ToolButton {
+               id: manageCategoriesButton
+               Layout.preferredWidth: 34
+               Layout.preferredHeight: 30
+               ToolTip.visible: manageCategoriesButton.hovered
+               ToolTip.text: qsTr("Quản lý loại: thêm, đổi tên, xoá")
+               background: Rectangle {
+                   radius: 15
+                   color: manageCategoriesButton.hovered ? "#3c3c46" : "#26262e"
+                   border.color: "#2c2c34"
+                   border.width: 1
+               }
+               contentItem: Label {
+                   text: "⚙"
+                   font.pixelSize: 15
+                   color: "#a0a0a8"
+                   horizontalAlignment: Text.AlignHCenter
+                   verticalAlignment: Text.AlignVCenter
+               }
+               onClicked: manageDialog.openManage()
+           }
+       }
+
+       CategoryDialog {
+           id: manageDialog
+           entryModel: root.entryModel
+           onClosed: {
+               listView.currentIndex = 0
+               root.entryModel.showFavorites(root.entryModel.categoryFilter)
+           }
+       }
+
        StackView.onActivated: {
            if (searchField.text.length > 0)
                return
 
            if (entryModel.mode === EntryModel.ModeFavorites) {
-               entryModel.showFavorites()
+               entryModel.showFavorites(entryModel.categoryFilter)
                listView.currentIndex = 0
            } else {
                entryModel.showHistory()
@@ -161,16 +255,30 @@ ColumnLayout {
               horizontalAlignment: Text.AlignHCenter
               wrapMode: Text.WordWrap
                   visible: entryModel.count === 0 && !searchTimer.running
-                  text: searchField.text.length === 0
-                      ? qsTr("Nhập kanji, kana, romaji hoặc nghĩa tiếng Việt")
-                      : qsTr("Không tìm thấy.\nThử gõ romaji, hoặc gõ nghĩa tiếng Việt")
+                  text: {
+                      if (searchField.text.length > 0)
+                          return qsTr("Không tìm thấy.\nThử gõ romaji, hoặc gõ nghĩa tiếng Việt")
+
+                      if (entryModel.mode === EntryModel.ModeFavorites)
+                          return entryModel.categoryFilter === 0
+                              ? qsTr("Chưa có từ yêu thích nào.\nBấm ★ ở trang chi tiết, chọn loại rồi lưu.")
+                              : qsTr("Chưa có từ nào trong loại này.\nBấm ★ ở trang chi tiết rồi chọn loại này.")
+
+                      if (entryModel.mode === EntryModel.ModeHistory)
+                          return qsTr("Chưa có lịch sử tra cứu.\nNhập kanji, kana, romaji hoặc nghĩa tiếng Việt")
+
+                      return qsTr("Nhập kanji, kana, romaji hoặc nghĩa tiếng Việt")
+                  }
                   color: "white"
                   font.pixelSize: 14
            }
-           onAtYEndChanged: {
-               if (atYEnd && entryModel.hasMore &&  entryModel.count > 0)
-                   entryModel.loadMore()
+           function maybeLoadMore() {
+               if (listView.atYEnd && entryModel.hasMore && entryModel.count > 0)
+                   Qt.callLater(entryModel.loadMore)
            }
+
+           onAtYEndChanged: listView.maybeLoadMore()
+           onCountChanged:  listView.maybeLoadMore()
            footer: Item {
                width: ListView.view.width
                height: entryModel.hasMore ? 40 : 0

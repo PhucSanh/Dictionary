@@ -22,6 +22,8 @@ class EntryModel : public QAbstractListModel {
     Q_PROPERTY(int mode READ mode NOTIFY modeChanged)
     Q_PROPERTY(QString deinflectedFrom READ deinflectedFrom NOTIFY deinflectedChanged)
     Q_PROPERTY(QString deinflectedTo READ deinflectedTo NOTIFY deinflectedChanged)
+    Q_PROPERTY(QVariantList categories READ categories NOTIFY categoriesChanged)
+    Q_PROPERTY(int categoryFilter READ categoryFilter NOTIFY categoryFilterChanged)
 
 public:
     enum Roles {
@@ -33,7 +35,8 @@ public:
         EnglishRole,
         PartOfSpeechRole,
         LevelRole,
-        ReadingHiraRole
+        ReadingHiraRole,
+        CategoriesRole
     };
 
     enum Mode { ModeSearch, ModeHistory, ModeFavorites };
@@ -57,15 +60,31 @@ public:
     QString deinflectedFrom() const;
     QString deinflectedTo() const;
 
+    QVariantList categories() const;
+    int          categoryFilter() const;
+
     Q_INVOKABLE void search(const QString &query);
     Q_INVOKABLE void clear();
     Q_INVOKABLE void loadMore();
     Q_INVOKABLE void showHistory();
-    Q_INVOKABLE void showFavorites();
+    Q_INVOKABLE void showFavorites(int categoryId = 0);
 
     Q_INVOKABLE void addHistory(int entryId);
     Q_INVOKABLE bool toggleFavorite(int entryId);
     Q_INVOKABLE bool isFavorite(int entryId);
+
+    Q_INVOKABLE int  addCategory(const QString &name);
+    Q_INVOKABLE bool renameCategory(int categoryId, const QString &name);
+    Q_INVOKABLE bool deleteCategory(int categoryId);
+    Q_INVOKABLE void refreshCategories();
+
+    Q_INVOKABLE bool         addFavorite(int entryId, const QVariantList &categoryIds);
+    Q_INVOKABLE bool         removeFavorite(int entryId);
+    Q_INVOKABLE bool         setFavoriteCategories(int entryId, const QVariantList &categoryIds);
+    Q_INVOKABLE QVariantList categoriesFor(int entryId);
+    Q_INVOKABLE QVariantList categoryIdsFor(int entryId);
+    Q_INVOKABLE QString      categoryNamesFor(int entryId);
+    Q_INVOKABLE int          favoriteCount(int categoryId = 0);
 
     Q_INVOKABLE QVariantList notesFor(int entryId);
     Q_INVOKABLE int          addNote(int entryId, const QString &jp,
@@ -77,7 +96,7 @@ public:
     Q_INVOKABLE QVariantList conjugationsFor(const QString &word,
                                              const QString &readingHira,
                                              const QString &partOfSpeech);
-    Q_INVOKABLE QVariantList flashcards(int limit);
+    Q_INVOKABLE QVariantList flashcards(int limit, int categoryId = 0);
 
     Q_INVOKABLE void copyToClipboard(const QString &text);
 
@@ -87,6 +106,8 @@ signals:
     void hasMoreChanged();
     void modeChanged();
     void deinflectedChanged();
+    void categoriesChanged();
+    void categoryFilterChanged();
 
 private:
     struct QueryOutcome {
@@ -101,6 +122,7 @@ private:
     void setTotalCount(int total);
     void setMode(int value);
     void setDeinflected(const QString &from, const QString &to);
+    void setCategoryFilter(int categoryId);
 
     std::shared_ptr<IDictionaryRepository> m_dict;
     std::shared_ptr<IUserRepository>   m_user;
@@ -111,8 +133,10 @@ private:
     int            m_offset     = 0;
     bool           m_usedMeaning = false;
     bool           m_hasMore    = false;
+    bool           m_busy       = false;
     int            m_totalCount = 0;
     int            m_mode       = ModeHistory;
+    int            m_categoryFilter = 0;
     QString        m_deinflectedFrom;
     QString        m_deinflectedTo;
 };

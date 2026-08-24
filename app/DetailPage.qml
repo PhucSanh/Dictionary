@@ -18,13 +18,18 @@ Item {
     property var notes: []
     property var conjugations: []
     property string readingHira: ""
+    property string favCategories: ""
     property string pageTitle: qsTr("Chi tiết")
     required property EntryModel entryModel
     function reloadNotes() {
         root.notes = entryModel.notesFor(root.entryId)
     }
-    Component.onCompleted: {
+    function reloadFavorite() {
         root.isFav = entryModel.isFavorite(root.entryId)
+        root.favCategories = root.isFav ? entryModel.categoryNamesFor(root.entryId) : ""
+    }
+    Component.onCompleted: {
+        root.reloadFavorite()
         root.reloadNotes()
         root.conjugations = entryModel.conjugationsFor(root.word, root.readingHira, root.partOfSpeech)
     }
@@ -41,7 +46,7 @@ Item {
                     Layout.fillWidth: true
                     visible: !root.isFav
                     wrapMode: Text.WordWrap
-                    text: qsTr("Bấm ★ để lưu từ này và thêm ghi chú của riêng bạn")
+                    text: qsTr("Bấm ★ để chọn loại (N2, N3, Tiếng Nhật IT...) và lưu từ này vào yêu thích")
                     color: "#707078"
                     font.pixelSize: 13
                 }
@@ -82,9 +87,43 @@ Item {
                                 verticalAlignment: Text.AlignVCenter
                             }
                             onClicked: {
-                                root.isFav = entryModel.toggleFavorite(root.entryId)
+                                if (root.isFav) {
+                                    entryModel.removeFavorite(root.entryId)
+                                    root.reloadFavorite()
+                                } else {
+                                    categoryDialog.openFor(root.entryId, [])
+                                }
                             }
                         }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: root.isFav
+                    spacing: 8
+
+                    Label {
+                        text: qsTr("Loại")
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: "#707078"
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: root.favCategories.length > 0
+                              ? root.favCategories
+                              : qsTr("Chưa phân loại")
+                        font.pixelSize: 13
+                        color: "#f0c040"
+                        padding: 4
+                        background: Rectangle { color: "#2a2418"; radius: 3 }
+                    }
+                    Button {
+                        text: qsTr("Sửa loại")
+                        onClicked: categoryDialog.openFor(
+                            root.entryId, entryModel.categoryIdsFor(root.entryId))
+                    }
                 }
 
                 Label {
@@ -321,6 +360,18 @@ Item {
                 Item { Layout.fillHeight: true }
             }
         }
+
+    CategoryDialog {
+        id: categoryDialog
+        entryModel: root.entryModel
+        onConfirmed: (ids) => {
+            if (root.isFav)
+                root.entryModel.setFavoriteCategories(root.entryId, ids)
+            else
+                root.entryModel.addFavorite(root.entryId, ids)
+            root.reloadFavorite()
+        }
+    }
 
     Dialog{
         id: noteDialog

@@ -6,21 +6,73 @@ import Dictionary
 
 Item {
     id: root
-    property string pageTitle: qsTr("Flashcard")
+    property string pageTitle: root.started
+                               ? qsTr("Flashcard · %1").arg(root.deckName)
+                               : qsTr("Tạo bộ thẻ")
     required property EntryModel entryModel
     property int limit: 0
+    property int categoryId: 0
+    property int selectedId: -1
+    property bool started: false
+    property string deckName: ""
     property var cards: []
     property int  idx: 0
     property bool revealed: false
     readonly property var card: (cards.length > 0 && idx < cards.length) ? cards[idx] : null
 
-    Component.onCompleted: root.reload()
+    Component.onCompleted: {
+        if (root.categoryId > 0)
+            root.selectedId = root.categoryId
+    }
     StackView.onActivated: root.forceActiveFocus()
 
-    function reload() {
-        root.cards = root.entryModel.flashcards(root.limit)
+    function categoryOptions() {
+        return [{ categoryId: 0,
+                  name: qsTr("Tất cả từ yêu thích"),
+                  entryCount: root.entryModel.favoriteCount(0) }]
+               .concat(root.entryModel.categories)
+    }
+
+    function countOf(id) {
+        if (id < 0)
+            return 0
+        if (id === 0)
+            return root.entryModel.favoriteCount(0)
+        const list = root.entryModel.categories
+        for (let i = 0; i < list.length; i++)
+            if (list[i].categoryId === id)
+                return list[i].entryCount
+        return 0
+    }
+
+    function nameOf(id) {
+        if (id === 0)
+            return qsTr("Tất cả")
+        const list = root.entryModel.categories
+        for (let i = 0; i < list.length; i++)
+            if (list[i].categoryId === id)
+                return list[i].name
+        return qsTr("Tất cả")
+    }
+
+    function start() {
+        if (root.selectedId < 0)
+            return
+        root.categoryId = root.selectedId
+        root.deckName   = root.nameOf(root.selectedId)
+        root.cards      = root.entryModel.flashcards(root.limit, root.categoryId)
+        if (root.cards.length === 0)
+            return
+        root.started = true
         root.shuffle()
         root.forceActiveFocus()
+    }
+
+    function backToSetup() {
+        root.started  = false
+        root.cards    = []
+        root.idx      = 0
+        root.revealed = false
     }
 
     function shuffle() {
@@ -46,32 +98,191 @@ Item {
     function flip() { root.revealed = !root.revealed }
 
     focus: true
-    Keys.onSpacePressed:  root.flip()
-    Keys.onReturnPressed: root.flip()
-    Keys.onRightPressed:  root.next()
-    Keys.onLeftPressed:   root.prev()
+    Keys.onSpacePressed:  if (root.started) root.flip()
+    Keys.onReturnPressed: root.started ? root.flip() : root.start()
+    Keys.onRightPressed:  if (root.started) root.next()
+    Keys.onLeftPressed:   if (root.started) root.prev()
 
-    Label {
-        anchors.centerIn: parent
-        width: parent.width - 60
-        visible: root.cards.length === 0
-        text: qsTr("Chưa có từ yêu thích nào.\nBấm ★ ở trang chi tiết để thêm.")
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.WordWrap
-        color: "#707078"
-        font.pixelSize: 14
+    ColumnLayout {
+        anchors.fill: parent
+        visible: !root.started
+        spacing: 12
+
+        Label {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            text: qsTr("Chọn loại từ vựng để tạo bộ thẻ")
+            font.pixelSize: 18
+            font.bold: true
+            color: "white"
+        }
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: qsTr("Bộ thẻ chỉ gồm các từ yêu thích thuộc loại bạn chọn.")
+            font.pixelSize: 13
+            color: "#707078"
+        }
+
+        ScrollView {
+            id: optionScroll
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            contentWidth: availableWidth
+
+            Column {
+                id: optionColumn
+                width: optionScroll.availableWidth
+                spacing: 6
+
+                Repeater {
+                    model: root.categoryOptions()
+
+                    Rectangle {
+                        id: option
+                        required property var modelData
+
+                        readonly property int  optionId: option.modelData.categoryId
+                        readonly property int  optionCount: option.modelData.entryCount
+                        readonly property bool empty: option.optionCount === 0
+                        readonly property bool selected: root.selectedId === option.optionId
+
+                        width: optionColumn.width
+                        height: 52
+                        radius: 8
+                        color: option.selected ? "#2f4468" : "#1c1c22"
+                        border.color: option.selected ? "#3a5a8c" : "#2c2c34"
+                        border.width: 1
+                        opacity: option.empty ? 0.45 : 1.0
+
+                        Behavior on color { ColorAnimation { duration: 120 } }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 14
+                            anchors.rightMargin: 14
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 18
+                                Layout.preferredHeight: 18
+                                radius: 9
+                                color: "transparent"
+                                border.color: option.selected ? "#5a7aac" : "#4c4c54"
+                                border.width: 2
+
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    visible: option.selected
+                                    width: 9
+                                    height: 9
+                                    radius: 4.5
+                                    color: "#7a9ada"
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: option.modelData.name
+                                font.pixelSize: 16
+                                color: option.selected ? "white" : "#c8c8d0"
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                text: option.empty
+                                      ? qsTr("chưa có từ")
+                                      : qsTr("%1 từ").arg(option.optionCount)
+                                font.pixelSize: 12
+                                color: option.selected ? "#c8d8f0" : "#707078"
+                            }
+                        }
+
+                        TapHandler {
+                            enabled: !option.empty
+                            onTapped: root.selectedId = option.optionId
+                        }
+                    }
+                }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: root.entryModel.favoriteCount(0) === 0
+            wrapMode: Text.WordWrap
+            text: qsTr("Bạn chưa có từ yêu thích nào.\nBấm ★ ở trang chi tiết, chọn loại rồi lưu.")
+            horizontalAlignment: Text.AlignHCenter
+            color: "#707078"
+            font.pixelSize: 14
+        }
+
+        Button {
+            id: startButton
+            Layout.fillWidth: true
+            Layout.preferredHeight: 46
+            enabled: root.selectedId >= 0 && root.countOf(root.selectedId) > 0
+            focusPolicy: Qt.NoFocus
+            text: root.selectedId < 0
+                  ? qsTr("Chọn một loại để bắt đầu")
+                  : qsTr("Bắt đầu học · %1 thẻ").arg(root.countOf(root.selectedId))
+            contentItem: Label {
+                text: startButton.text
+                font.pixelSize: 15
+                font.bold: true
+                color: startButton.enabled ? "white" : "#5c5c64"
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 6
+                color: startButton.enabled
+                       ? (startButton.hovered ? "#4a6a9c" : "#3a5a8c")
+                       : "#22222a"
+            }
+            onClicked: root.start()
+        }
     }
 
     ColumnLayout {
         anchors.fill: parent
-        visible: root.cards.length > 0
+        visible: root.started
         spacing: 12
 
-        Label {
-            Layout.alignment: Qt.AlignHCenter
-            text: qsTr("%1 / %2").arg(root.idx + 1).arg(root.cards.length)
-            color: "#707078"
-            font.pixelSize: 12
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            Label {
+                text: root.deckName
+                font.pixelSize: 14
+                font.bold: true
+                color: "#f0c040"
+                padding: 4
+                background: Rectangle { color: "#2a2418"; radius: 3 }
+            }
+            Label {
+                text: qsTr("%1 / %2").arg(root.idx + 1).arg(root.cards.length)
+                color: "#707078"
+                font.pixelSize: 12
+            }
+            Item { Layout.fillWidth: true }
+            ToolButton {
+                id: changeDeckButton
+                Layout.preferredHeight: 28
+                focusPolicy: Qt.NoFocus
+                background: Rectangle {
+                    radius: 4
+                    color: changeDeckButton.hovered ? "#2c2c34" : "transparent"
+                }
+                contentItem: Label {
+                    text: qsTr("↺ Đổi loại")
+                    font.pixelSize: 13
+                    color: "#e0e0e6"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: root.backToSetup()
+            }
         }
 
         Rectangle {
@@ -138,6 +349,15 @@ Item {
                         visible: root.revealed
                         spacing: 8
 
+                        Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            visible: root.card && root.card.categories.length > 0
+                            text: root.card ? root.card.categories : ""
+                            color: "#f0c040"
+                            font.pixelSize: 12
+                            padding: 4
+                            background: Rectangle { color: "#2a2418"; radius: 3 }
+                        }
                         Label {
                             Layout.alignment: Qt.AlignHCenter
                             text: root.card

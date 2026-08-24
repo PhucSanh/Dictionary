@@ -2,6 +2,7 @@
 
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QStringList>
 #include <QVariant>
 #include <utility>
 
@@ -27,6 +28,36 @@ QVariantList toVariantList(const QVector<Note> &notes)
     out.reserve(notes.size());
     for (const Note &n : notes)
         out.append(toMap(n));
+    return out;
+}
+
+QVariantMap toMap(const Category &c)
+{
+    QVariantMap m;
+    m["categoryId"] = c.id;
+    m["name"]       = c.name;
+    m["entryCount"] = c.entryCount;
+    return m;
+}
+
+QVariantList toVariantList(const QVector<Category> &categories)
+{
+    QVariantList out;
+    out.reserve(categories.size());
+    for (const Category &c : categories)
+        out.append(toMap(c));
+    return out;
+}
+
+QVector<int> toIntVector(const QVariantList &ids)
+{
+    QVector<int> out;
+    out.reserve(ids.size());
+    for (const QVariant &v : ids) {
+        const int id = v.toInt();
+        if (id > 0 && !out.contains(id))
+            out.append(id);
+    }
     return out;
 }
 
@@ -68,6 +99,7 @@ QVariant EntryModel::data(const QModelIndex &index, int role) const
     case MeaningRole:      return e.meaning;
     case EnglishRole:      return e.english;
     case LevelRole:        return e.level;
+    case CategoriesRole:   return e.categories;
     default:               return {};
     }
 }
@@ -84,6 +116,7 @@ QHash<int, QByteArray> EntryModel::roleNames() const
         { MeaningRole,      "meaning" },
         { EnglishRole,      "english" },
         { LevelRole,        "level" },
+        { CategoriesRole,   "categories" },
     };
 }
 
@@ -91,8 +124,16 @@ int     EntryModel::count() const           { return m_entries.size(); }
 int     EntryModel::totalCount() const      { return m_totalCount; }
 bool    EntryModel::hasMore() const         { return m_hasMore; }
 int     EntryModel::mode() const            { return m_mode; }
+int     EntryModel::categoryFilter() const  { return m_categoryFilter; }
 QString EntryModel::deinflectedFrom() const { return m_deinflectedFrom; }
 QString EntryModel::deinflectedTo() const   { return m_deinflectedTo; }
+
+QVariantList EntryModel::categories() const
+{
+    if (!m_user)
+        return {};
+    return toVariantList(m_user->categories());
+}
 
 EntryModel::QueryOutcome EntryModel::runQuery(const QString &query,
                                               int limit, int offset) const
@@ -156,33 +197,35 @@ void EntryModel::search(const QString &query)
         }
     }
 
-    setEntries(entries);
     m_offset = entries.size();
     setHasMore(entries.size() == kPageSize);
     setTotalCount(total);
+    setEntries(entries);
 }
 
 void EntryModel::loadMore()
 {
-    if (!m_dict || !m_hasMore || m_lastQuery.isEmpty())
+    if (!m_dict || !m_hasMore || m_busy || m_lastQuery.isEmpty())
         return;
 
+    m_busy = true;
     const QVector<Entry> more = m_usedMeaning
         ? m_dict->searchByMeaning(m_lastQuery, kPageSize, m_offset)
         : m_dict->searchByWord(m_lastQuery, kPageSize, m_offset);
-    appendEntries(more);
     m_offset += more.size();
     setHasMore(more.size() == kPageSize);
+    appendEntries(more);
+    m_busy = false;
 }
 
 void EntryModel::clear()
 {
-    setEntries({});
     m_lastQuery.clear();
     m_offset      = 0;
     m_usedMeaning = false;
     setHasMore(false);
     setTotalCount(0);
+    setEntries({});
 }
 
 void EntryModel::showHistory()
@@ -190,29 +233,33 @@ void EntryModel::showHistory()
     if (!m_user)
         return;
 
-    setEntries(m_user->recentHistory(kHistoryLimit));
-    setMode(ModeHistory);
+    const QVector<Entry> entries = m_user->recentHistory(kHistoryLimit);
 
+    setMode(ModeHistory);
     m_lastQuery.clear();
     m_offset = 0;
     setHasMore(false);
-    setTotalCount(m_entries.size());
+    setTotalCount(entries.size());
     setDeinflected(QString(), QString());
+    setEntries(entries);
 }
 
-void EntryModel::showFavorites()
+void EntryModel::showFavorites(int categoryId)
 {
     if (!m_user)
         return;
 
-    setEntries(m_user->favorites(kFavoritesLimit));
-    setMode(ModeFavorites);
+    setCategoryFilter(categoryId);
+    const QVector<Entry> entries =
+        m_user->favoritesInCategory(m_categoryFilter, kFavoritesLimit);
 
+    setMode(ModeFavorites);
     m_lastQuery.clear();
     m_offset = 0;
     setHasMore(false);
-    setTotalCount(m_entries.size());
+    setTotalCount(entries.size());
     setDeinflected(QString(), QString());
+    setEntries(entries);
 }
 
 void EntryModel::addHistory(int entryId)
@@ -229,6 +276,115 @@ bool EntryModel::toggleFavorite(int entryId)
 bool EntryModel::isFavorite(int entryId)
 {
     return m_user ? m_user->isFavorite(entryId) : false;
+}
+
+int EntryModel::addCategory(const QString &name)
+{
+    if (!m_user)
+        return 0;
+
+    const int newId = m_user->addCategory(name);
+    if (newId > 0)
+        emit categoriesChanged();
+    return newId;
+}
+
+bool EntryModel::renameCategory(int categoryId, const QString &name)
+{
+    if (!m_user)
+        return false;
+
+    const bool ok = m_user->renameCategory(categoryId, name);
+    if (ok)
+        emit categoriesChanged();
+    return ok;
+}
+
+bool EntryModel::deleteCategory(int categoryId)
+{
+    if (!m_user)
+        return false;
+
+    const bool ok = m_user->deleteCategory(categoryId);
+    if (!ok)
+        return false;
+
+    emit categoriesChanged();
+    if (m_categoryFilter == categoryId && m_mode == ModeFavorites)
+        showFavorites(0);
+    return true;
+}
+
+void EntryModel::refreshCategories()
+{
+    emit categoriesChanged();
+}
+
+bool EntryModel::addFavorite(int entryId, const QVariantList &categoryIds)
+{
+    if (!m_user)
+        return false;
+
+    const bool ok = m_user->addFavorite(entryId, toIntVector(categoryIds));
+    if (ok)
+        emit categoriesChanged();
+    return ok;
+}
+
+bool EntryModel::removeFavorite(int entryId)
+{
+    if (!m_user)
+        return false;
+
+    const bool ok = m_user->removeFavorite(entryId);
+    if (ok)
+        emit categoriesChanged();
+    return ok;
+}
+
+bool EntryModel::setFavoriteCategories(int entryId, const QVariantList &categoryIds)
+{
+    if (!m_user)
+        return false;
+
+    const bool ok = m_user->setFavoriteCategories(entryId, toIntVector(categoryIds));
+    if (ok)
+        emit categoriesChanged();
+    return ok;
+}
+
+QVariantList EntryModel::categoriesFor(int entryId)
+{
+    if (!m_user)
+        return {};
+    return toVariantList(m_user->categoriesFor(entryId));
+}
+
+QVariantList EntryModel::categoryIdsFor(int entryId)
+{
+    if (!m_user)
+        return {};
+
+    QVariantList out;
+    for (const Category &c : m_user->categoriesFor(entryId))
+        out.append(c.id);
+    return out;
+}
+
+int EntryModel::favoriteCount(int categoryId)
+{
+    return m_user ? m_user->favoriteCount(categoryId) : 0;
+}
+
+QString EntryModel::categoryNamesFor(int entryId)
+{
+    if (!m_user)
+        return {};
+
+    QStringList names;
+    for (const Category &c : m_user->categoriesFor(entryId))
+        names.append(c.name);
+    return names.join(QStringLiteral(", "));
 }
 
 QVariantList EntryModel::notesFor(int entryId)
@@ -293,13 +449,14 @@ QVariantList EntryModel::conjugationsFor(const QString &word,
     return out;
 }
 
-QVariantList EntryModel::flashcards(int limit)
+QVariantList EntryModel::flashcards(int limit, int categoryId)
 {
     if (!m_user)
         return {};
 
-    const QVector<Entry>            favorites = m_user->favorites(limit);
-    const QHash<int, QVector<Note>> notes     = m_user->notesForFavorites(limit);
+    const QVector<Entry>            favorites = m_user->favoritesInCategory(categoryId, limit);
+    const QHash<int, QVector<Note>> notes     =
+        m_user->notesForFavoritesInCategory(categoryId, limit);
 
     QVariantList out;
     out.reserve(favorites.size());
@@ -315,6 +472,7 @@ QVariantList EntryModel::flashcards(int limit)
         card["meaning"]      = e.meaning;
         card["english"]      = e.english;
         card["level"]        = e.level;
+        card["categories"]   = e.categories;
         card["notes"]        = toVariantList(notes.value(e.id));
         out.append(card);
     }
@@ -328,9 +486,14 @@ void EntryModel::copyToClipboard(const QString &text)
 
 void EntryModel::setEntries(const QVector<Entry> &entries)
 {
+    const bool wasBusy = m_busy;
+    m_busy = true;
+
     beginResetModel();
     m_entries = entries;
     endResetModel();
+
+    m_busy = wasBusy;
     emit countChanged();
 }
 
@@ -342,9 +505,14 @@ void EntryModel::appendEntries(const QVector<Entry> &entries)
     const int first = m_entries.size();
     const int last  = first + entries.size() - 1;
 
+    const bool wasBusy = m_busy;
+    m_busy = true;
+
     beginInsertRows(QModelIndex(), first, last);
     m_entries.append(entries);
     endInsertRows();
+
+    m_busy = wasBusy;
     emit countChanged();
 }
 
@@ -370,6 +538,15 @@ void EntryModel::setMode(int value)
         return;
     m_mode = value;
     emit modeChanged();
+}
+
+void EntryModel::setCategoryFilter(int categoryId)
+{
+    const int value = categoryId > 0 ? categoryId : 0;
+    if (m_categoryFilter == value)
+        return;
+    m_categoryFilter = value;
+    emit categoryFilterChanged();
 }
 
 void EntryModel::setDeinflected(const QString &from, const QString &to)

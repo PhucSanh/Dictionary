@@ -36,4 +36,26 @@ int dict_db_list_notes(DictDb *db, int entry_id, DictNoteList *out);
 int dict_db_list_favorite_notes(DictDb *db, int limit, DictNoteList *out);
 
 int dict_db_delete_note(DictDb *db, int note_id);
+
+int dict_db_list_categories(DictDb *db, DictCategoryList *out);
+
+int dict_db_add_category(DictDb *db, const char *name, int *out_id);
+
+int dict_db_rename_category(DictDb *db, int category_id, const char *name);
+
+int dict_db_delete_category(DictDb *db, int category_id);
+
+int dict_db_add_favorite(DictDb *db, int entry_id, const int *category_ids, int n);
+
+int dict_db_remove_favorite(DictDb *db, int entry_id);
+
+int dict_db_set_favorite_categories(DictDb *db, int entry_id, const int *category_ids, int n);
+
+int dict_db_list_entry_categories(DictDb *db, int entry_id, DictCategoryList *out);
+
+int dict_db_list_favorites_in_category(DictDb *db, int category_id, int limit, DictEntryList *out);
+
+int dict_db_count_favorites(DictDb *db, int category_id, int *out_total);
+
+int dict_db_list_favorite_notes_in_category(DictDb *db, int category_id, int limit, DictNoteList *out);
 #endif // DICT_DB_H

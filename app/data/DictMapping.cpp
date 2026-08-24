@@ -17,6 +17,7 @@ Entry toEntry(const DictEntry &c)
     e.meaning      = QString::fromUtf8(c.meaning);
     e.english      = QString::fromUtf8(c.english);
     e.level        = QString::fromUtf8(c.level);
+    e.categories   = QString::fromUtf8(c.categories);
     return e;
 }
 
@@ -29,6 +30,15 @@ Note toNote(const DictNote &c)
     n.translation = QString::fromUtf8(c.translation);
     n.note        = QString::fromUtf8(c.note);
     return n;
+}
+
+Category toCategory(const DictCategory &c)
+{
+    Category out;
+    out.id         = c.id;
+    out.name       = QString::fromUtf8(c.name);
+    out.entryCount = c.entry_count;
+    return out;
 }
 
 DictNote fromNote(const Note &n)
@@ -64,6 +74,16 @@ QVector<Note> drainNotes(DictNoteList *list)
     for (int i = 0; i < list->count; ++i)
         out.append(toNote(list->items[i]));
     dict_note_list_free(list);
+    return out;
+}
+
+QVector<Category> drainCategories(DictCategoryList *list)
+{
+    QVector<Category> out;
+    out.reserve(list->count);
+    for (int i = 0; i < list->count; ++i)
+        out.append(toCategory(list->items[i]));
+    dict_category_list_free(list);
     return out;
 }
 

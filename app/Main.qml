@@ -140,7 +140,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+L"
         enabled: stackView.depth === 1
-        onActivated: stackView.push(flashcardPage)
+        onActivated: stackView.push(flashcardPage, { categoryId: window.entryModel.categoryFilter })
     }
 
     StackView {
@@ -155,7 +155,7 @@ ApplicationWindow {
         SearchPage {
             entryModel: window.entryModel
             onEntryActivated: (p) => stackView.push(detailPage, p)
-            onFlashcardRequested: stackView.push(flashcardPage)
+            onFlashcardRequested: (categoryId) => stackView.push(flashcardPage, { categoryId: categoryId })
         }
     }
     Component {

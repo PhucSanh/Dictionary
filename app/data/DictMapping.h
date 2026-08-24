@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/Category.h"
 #include "domain/Entry.h"
 #include "domain/Note.h"
 #include <QVector>
@@ -12,9 +13,11 @@ namespace mapping {
 
 Entry    toEntry(const DictEntry &c);
 Note     toNote(const DictNote &c);
+Category toCategory(const DictCategory &c);
 DictNote fromNote(const Note &n);
 
-QVector<Entry> drainEntries(DictEntryList *list);
-QVector<Note>  drainNotes(DictNoteList *list);
+QVector<Entry>    drainEntries(DictEntryList *list);
+QVector<Note>     drainNotes(DictNoteList *list);
+QVector<Category> drainCategories(DictCategoryList *list);
 
 }
