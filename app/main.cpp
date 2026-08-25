@@ -1,10 +1,12 @@
-#include "entrymodel.h"
+#include "ViewModel/EntryModel.h"
+#include "ViewModel/SpeechViewModel.h"
 
-#include "data/CoreTextAnalyzer.h"
-#include "data/DbPaths.h"
-#include "data/DictDbConnection.h"
-#include "data/DictionaryRepository.h"
-#include "data/UserRepository.h"
+#include "Model/Repositories/CoreTextAnalyzer.h"
+#include "Model/Database/DbPaths.h"
+#include "Model/Database/DictDbConnection.h"
+#include "Model/Repositories/DictionaryRepository.h"
+#include "Model/Repositories/UserRepository.h"
+#include "Model/Services/QtSpeechService.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -31,8 +33,15 @@ int main(int argc, char *argv[])
     auto dictionaryRepo = std::make_shared<DictionaryRepository>(connection);
     auto userRepo       = std::make_shared<UserRepository>(connection);
     auto textAnalyzer   = std::make_shared<CoreTextAnalyzer>();
+    auto speechService  = std::make_shared<QtSpeechService>();
 
-    EntryModel entryModel(dictionaryRepo, userRepo, textAnalyzer);
+    EntryModel      entryModel(dictionaryRepo, userRepo, textAnalyzer);
+    SpeechViewModel speechViewModel(speechService);
+
+    if (!speechService->isAvailable()) {
+        qWarning() << "Khong dung duoc chuc nang phat am:"
+                   << "thieu module Qt TextToSpeech hoac giong tieng Nhat cua he thong.";
+    }
 
     QQmlApplicationEngine engine;
     QObject::connect(
@@ -43,7 +52,8 @@ int main(int argc, char *argv[])
         Qt::QueuedConnection);
 
     engine.setInitialProperties({
-        { QStringLiteral("entryModel"), QVariant::fromValue(&entryModel) },
+        { QStringLiteral("entryModel"),      QVariant::fromValue(&entryModel) },
+        { QStringLiteral("speechViewModel"), QVariant::fromValue(&speechViewModel) },
     });
 
     engine.loadFromModule("Dictionary", "Main");

@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(QT_QML_GENERATE_QMLLS_INI ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Quick)
+find_package(Qt6 QUIET COMPONENTS TextToSpeech)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -44,42 +45,57 @@ target_compile_definitions(dict-core PRIVATE
     SQLITE_OMIT_DEPRECATED
 )
 qt_add_executable(appDictionary app/main.cpp)
-target_include_directories(appDictionary PRIVATE app)
+target_include_directories(appDictionary PRIVATE app/ViewModel app)
 qt_add_qml_module(appDictionary
     URI Dictionary
     QML_FILES
-        app/Main.qml
-        app/SearchPage.qml
-        app/DetailPage.qml
-        app/FlashcardPage.qml
-        app/EntryDelegate.qml
-        app/CategoryDialog.qml
+        # ---------- View ----------
+        app/View/Main.qml
+        app/View/SearchPage.qml
+        app/View/DetailPage.qml
+        app/View/FlashcardPage.qml
+        app/View/EntryDelegate.qml
+        app/View/CategoryDialog.qml
     SOURCES
-        app/domain/Category.h
-        app/domain/Entry.h
-        app/domain/Note.h
-        app/domain/ConjugationForm.h
-        app/domain/Flashcard.h
-        app/domain/SearchResult.h
-        app/domain/IDictionaryRepository.h
-        app/domain/IUserRepository.h
-        app/domain/ITextAnalyzer.h
+        # ---------- ViewModel ----------
+        app/ViewModel/EntryModel.h
+        app/ViewModel/EntryModel.cpp
+        app/ViewModel/SpeechViewModel.h
+        app/ViewModel/SpeechViewModel.cpp
 
-        app/data/DbPaths.h
-        app/data/DbPaths.cpp
-        app/data/DictDbConnection.h
-        app/data/DictDbConnection.cpp
-        app/data/DictMapping.h
-        app/data/DictMapping.cpp
-        app/data/DictionaryRepository.h
-        app/data/DictionaryRepository.cpp
-        app/data/UserRepository.h
-        app/data/UserRepository.cpp
-        app/data/CoreTextAnalyzer.h
-        app/data/CoreTextAnalyzer.cpp
+        # ---------- Model / Entities ----------
+        app/Model/Entities/Entry.h
+        app/Model/Entities/Note.h
+        app/Model/Entities/Category.h
+        app/Model/Entities/ConjugationForm.h
+        app/Model/Entities/Flashcard.h
+        app/Model/Entities/SearchResult.h
 
-        app/entrymodel.h
-        app/entrymodel.cpp
+        # ---------- Model / Interfaces ----------
+        app/Model/Interfaces/IDictionaryRepository.h
+        app/Model/Interfaces/IUserRepository.h
+        app/Model/Interfaces/ITextAnalyzer.h
+        app/Model/Interfaces/ISpeechService.h
+
+        # ---------- Model / Services ----------
+        app/Model/Services/QtSpeechService.h
+        app/Model/Services/QtSpeechService.cpp
+
+        # ---------- Model / Repositories ----------
+        app/Model/Repositories/DictionaryRepository.h
+        app/Model/Repositories/DictionaryRepository.cpp
+        app/Model/Repositories/UserRepository.h
+        app/Model/Repositories/UserRepository.cpp
+        app/Model/Repositories/CoreTextAnalyzer.h
+        app/Model/Repositories/CoreTextAnalyzer.cpp
+
+        # ---------- Model / Database ----------
+        app/Model/Database/DbPaths.h
+        app/Model/Database/DbPaths.cpp
+        app/Model/Database/DictDbConnection.h
+        app/Model/Database/DictDbConnection.cpp
+        app/Model/Database/DictMapping.h
+        app/Model/Database/DictMapping.cpp
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -94,6 +110,15 @@ set_target_properties(appDictionary PROPERTIES
 )
 
 target_link_libraries(appDictionary PRIVATE Qt6::Quick dict-core)
+
+if (TARGET Qt6::TextToSpeech)
+    target_link_libraries(appDictionary PRIVATE Qt6::TextToSpeech)
+    target_compile_definitions(appDictionary PRIVATE DICT_HAS_TTS)
+    message(STATUS "Qt TextToSpeech: FOUND - chuc nang phat am duoc bat")
+else()
+    message(STATUS "Qt TextToSpeech: NOT FOUND - nut phat am se bi an. "
+                   "Cai them module Qt Speech bang Qt Maintenance Tool de bat.")
+endif()
 
 install(TARGETS appDictionary
     BUNDLE DESTINATION .
