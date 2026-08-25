@@ -35,15 +35,29 @@ void UserRepository::addHistory(int entryId)
     dict_db_add_history(handle, entryId);
 }
 
-QVector<Entry> UserRepository::recentHistory(int limit) const
+QVector<Entry> UserRepository::recentHistory(int limit, int offset) const
 {
     DictDb *handle = db();
     if (handle == nullptr) return {};
 
+    if (limit <= 0) limit = -1;
+    if (offset < 0)  offset = 0;
+
     DictEntryList list = {};
-    if (dict_db_list_history(handle, limit, &list) != DICT_OK)
+    if (dict_db_list_history(handle, limit, offset, &list) != DICT_OK)
         return {};
     return mapping::drainEntries(&list);
+}
+
+int UserRepository::historyCount() const
+{
+    DictDb *handle = db();
+    if (handle == nullptr) return 0;
+
+    int total = 0;
+    if (dict_db_count_history(handle, &total) != DICT_OK)
+        return 0;
+    return total;
 }
 
 bool UserRepository::toggleFavorite(int entryId)
@@ -68,18 +82,19 @@ bool UserRepository::isFavorite(int entryId) const
 
 QVector<Entry> UserRepository::favorites(int limit) const
 {
-    return favoritesInCategory(0, limit);
+    return favoritesInCategory(0, limit, 0);
 }
 
-QVector<Entry> UserRepository::favoritesInCategory(int categoryId, int limit) const
+QVector<Entry> UserRepository::favoritesInCategory(int categoryId, int limit, int offset) const
 {
     DictDb *handle = db();
     if (handle == nullptr) return {};
 
     if (limit <= 0) limit = -1;
+    if (offset < 0)  offset = 0;
 
     DictEntryList list = {};
-    if (dict_db_list_favorites_in_category(handle, categoryId, limit, &list) != DICT_OK)
+    if (dict_db_list_favorites_in_category(handle, categoryId, limit, offset, &list) != DICT_OK)
         return {};
     return mapping::drainEntries(&list);
 }

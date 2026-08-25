@@ -22,7 +22,8 @@ int dict_db_count_total(DictDb *db,const char*q,int * out_total);
 int dict_db_count(DictDb *db, const char *q, int is_meaning, int *out_total);
 int	dict_db_attach_user(DictDb	*db,const  char	*user_db_path);
 int	dict_db_add_history(DictDb	*db,int	entry_id);
-int	dict_db_list_history(DictDb	*db,int	limit,DictEntryList	*out);
+int	dict_db_list_history(DictDb	*db,int	limit,int offset,DictEntryList	*out);
+int	dict_db_count_history(DictDb *db, int *out_total);
 int	dict_db_clear_history(DictDb*db);
 int	dict_db_toggle_favorite(DictDb*db,int	entry_id,int *out_is_favorite);
 int	dict_db_is_favorite(DictDb*db,int	entry_id,	int	*out);
@@ -53,7 +54,7 @@ int dict_db_set_favorite_categories(DictDb *db, int entry_id, const int *categor
 
 int dict_db_list_entry_categories(DictDb *db, int entry_id, DictCategoryList *out);
 
-int dict_db_list_favorites_in_category(DictDb *db, int category_id, int limit, DictEntryList *out);
+int dict_db_list_favorites_in_category(DictDb *db, int category_id, int limit, int offset, DictEntryList *out);
 
 int dict_db_count_favorites(DictDb *db, int category_id, int *out_total);
 

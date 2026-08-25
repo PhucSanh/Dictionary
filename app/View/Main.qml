@@ -70,7 +70,7 @@ ApplicationWindow {
                 visible: stackView.depth === 1 && window.entryModel.totalCount > 0
                 text: window.entryModel.mode === EntryModel.ModeSearch
                       ? qsTr("%1 / %2 kết quả").arg(window.entryModel.count).arg(window.entryModel.totalCount)
-                      : qsTr("%1 từ").arg(window.entryModel.count)
+                      : qsTr("%1 / %2 từ").arg(window.entryModel.count).arg(window.entryModel.totalCount)
                 font.pixelSize: 13
                 color: "#a0a0a8"
             }

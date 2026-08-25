@@ -408,7 +408,7 @@ int dict_db_add_history(DictDb *db, int entry_id)
 
 }
 
-int dict_db_list_history(DictDb *db, int limit, DictEntryList *out)
+int dict_db_list_history(DictDb *db, int limit, int offset, DictEntryList *out)
 {
     if (db == NULL || out == NULL) return DICT_ERR_ARG;
     sqlite3_stmt *stmt = NULL;
@@ -417,12 +417,13 @@ int dict_db_list_history(DictDb *db, int limit, DictEntryList *out)
                       "FROM userdb.history h "
                       "JOIN words w ON w.id = h.entry_id "
                       "ORDER BY h.viewed_at DESC "
-                      "LIMIT ?1";
+                      "LIMIT ?1 OFFSET ?2";
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
         set_error(db, sqlite3_errmsg(db->handle));
         return DICT_ERR_DB;
     }
     sqlite3_bind_int (stmt, 1, limit);
+    sqlite3_bind_int (stmt, 2, offset);
     if (dict_entry_list_init(out, 16) != DICT_OK) {
         sqlite3_finalize(stmt);
         return DICT_ERR_NOMEM;
@@ -435,6 +436,29 @@ int dict_db_list_history(DictDb *db, int limit, DictEntryList *out)
     sqlite3_finalize(stmt);
     return DICT_OK;
 
+}
+
+int dict_db_count_history(DictDb *db, int *out_total)
+{
+    if (db == NULL || out_total == NULL) return DICT_ERR_ARG;
+
+    const char *sql =
+        "SELECT COUNT(*) FROM userdb.history h"
+        " JOIN words w ON w.id = h.entry_id";
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        set_error(db, sqlite3_errmsg(db->handle));
+        return DICT_ERR_DB;
+    }
+
+    int total = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+        total = sqlite3_column_int(stmt, 0);
+
+    sqlite3_finalize(stmt);
+    *out_total = total;
+    return DICT_OK;
 }
 
 int dict_db_clear_history(DictDb *db)
@@ -486,7 +510,7 @@ int dict_db_toggle_favorite(DictDb *db, int entry_id,int *out_is_favorite)
 
 }
 
-int dict_db_list_favorites_in_category(DictDb *db, int category_id, int limit, DictEntryList *out)
+int dict_db_list_favorites_in_category(DictDb *db, int category_id, int limit, int offset, DictEntryList *out)
 {
     if (db == NULL || out == NULL) return DICT_ERR_ARG;
     sqlite3_stmt *stmt = NULL;
@@ -503,13 +527,14 @@ int dict_db_list_favorites_in_category(DictDb *db, int category_id, int limit, D
         "     SELECT 1 FROM userdb.favorite_categories fk"
         "      WHERE fk.entry_id = f.entry_id AND fk.category_id = ?1)"
         " ORDER BY f.added_at DESC"
-        " LIMIT ?2";
+        " LIMIT ?2 OFFSET ?3";
     if (sqlite3_prepare_v2(db->handle, sql, -1, &stmt, NULL) != SQLITE_OK) {
         set_error(db, sqlite3_errmsg(db->handle));
         return DICT_ERR_DB;
     }
     sqlite3_bind_int(stmt,1,category_id);
     sqlite3_bind_int(stmt,2,limit);
+    sqlite3_bind_int(stmt,3,offset);
     if (dict_entry_list_init(out, 16) != DICT_OK) {
         sqlite3_finalize(stmt);
         return DICT_ERR_NOMEM;
@@ -527,7 +552,7 @@ int dict_db_list_favorites_in_category(DictDb *db, int category_id, int limit, D
 
 int dict_db_list_favorites(DictDb *db, int limit, DictEntryList *out)
 {
-    return dict_db_list_favorites_in_category(db, 0, limit, out);
+    return dict_db_list_favorites_in_category(db, 0, limit, 0, out);
 }
 
 int dict_db_count_favorites(DictDb *db, int category_id, int *out_total)
@@ -536,6 +561,7 @@ int dict_db_count_favorites(DictDb *db, int category_id, int *out_total)
 
     const char *sql =
         "SELECT COUNT(*) FROM userdb.favorites f"
+        " JOIN words w ON w.id = f.entry_id"
         " WHERE ?1 <= 0 OR EXISTS ("
         "     SELECT 1 FROM userdb.favorite_categories fc"
         "      WHERE fc.entry_id = f.entry_id AND fc.category_id = ?1)";

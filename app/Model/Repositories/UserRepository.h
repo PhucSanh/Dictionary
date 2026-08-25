@@ -10,7 +10,8 @@ public:
     explicit UserRepository(std::shared_ptr<DictDbConnection> conn);
 
     void           addHistory(int entryId) override;
-    QVector<Entry> recentHistory(int limit) const override;
+    QVector<Entry> recentHistory(int limit, int offset) const override;
+    int            historyCount() const override;
 
     bool           toggleFavorite(int entryId) override;
     bool           isFavorite(int entryId) const override;
@@ -25,7 +26,7 @@ public:
     bool              removeFavorite(int entryId) override;
     bool              setFavoriteCategories(int entryId, const QVector<int> &categoryIds) override;
     QVector<Category> categoriesFor(int entryId) const override;
-    QVector<Entry>    favoritesInCategory(int categoryId, int limit) const override;
+    QVector<Entry>    favoritesInCategory(int categoryId, int limit, int offset) const override;
     int               favoriteCount(int categoryId) const override;
 
     QVector<Note>  notesFor(int entryId) const override;

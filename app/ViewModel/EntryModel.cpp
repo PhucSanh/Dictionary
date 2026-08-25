@@ -9,8 +9,6 @@
 namespace {
 
 constexpr int kPageSize       = 10;
-constexpr int kHistoryLimit   = 50;
-constexpr int kFavoritesLimit = 50;
 
 QVariantMap toMap(const Note &n)
 {
@@ -205,13 +203,35 @@ void EntryModel::search(const QString &query)
 
 void EntryModel::loadMore()
 {
-    if (!m_dict || !m_hasMore || m_busy || m_lastQuery.isEmpty())
+    if (!m_hasMore || m_busy)
         return;
 
     m_busy = true;
-    const QVector<Entry> more = m_usedMeaning
-        ? m_dict->searchByMeaning(m_lastQuery, kPageSize, m_offset)
-        : m_dict->searchByWord(m_lastQuery, kPageSize, m_offset);
+    QVector<Entry> more;
+
+    switch (m_mode) {
+    case ModeSearch:
+        if (m_dict && !m_lastQuery.isEmpty()) {
+            more = m_usedMeaning
+                 ? m_dict->searchByMeaning(m_lastQuery, kPageSize, m_offset)
+                 : m_dict->searchByWord(m_lastQuery, kPageSize, m_offset);
+        }
+        break;
+
+    case ModeHistory:
+        if (m_user)
+            more = m_user->recentHistory(kPageSize, m_offset);
+        break;
+
+    case ModeFavorites:
+        if (m_user)
+            more = m_user->favoritesInCategory(m_categoryFilter, kPageSize, m_offset);
+        break;
+
+    default:
+        break;
+    }
+
     m_offset += more.size();
     setHasMore(more.size() == kPageSize);
     appendEntries(more);
@@ -233,13 +253,13 @@ void EntryModel::showHistory()
     if (!m_user)
         return;
 
-    const QVector<Entry> entries = m_user->recentHistory(kHistoryLimit);
+    const QVector<Entry> entries = m_user->recentHistory(kPageSize, 0);
 
     setMode(ModeHistory);
     m_lastQuery.clear();
-    m_offset = 0;
-    setHasMore(false);
-    setTotalCount(entries.size());
+    m_offset = entries.size();
+    setHasMore(entries.size() == kPageSize);
+    setTotalCount(m_user->historyCount());
     setDeinflected(QString(), QString());
     setEntries(entries);
 }
@@ -251,13 +271,13 @@ void EntryModel::showFavorites(int categoryId)
 
     setCategoryFilter(categoryId);
     const QVector<Entry> entries =
-        m_user->favoritesInCategory(m_categoryFilter, kFavoritesLimit);
+        m_user->favoritesInCategory(m_categoryFilter, kPageSize, 0);
 
     setMode(ModeFavorites);
     m_lastQuery.clear();
-    m_offset = 0;
-    setHasMore(false);
-    setTotalCount(entries.size());
+    m_offset = entries.size();
+    setHasMore(entries.size() == kPageSize);
+    setTotalCount(m_user->favoriteCount(m_categoryFilter));
     setDeinflected(QString(), QString());
     setEntries(entries);
 }
@@ -454,7 +474,7 @@ QVariantList EntryModel::flashcards(int limit, int categoryId)
     if (!m_user)
         return {};
 
-    const QVector<Entry>            favorites = m_user->favoritesInCategory(categoryId, limit);
+    const QVector<Entry>            favorites = m_user->favoritesInCategory(categoryId, limit, 0);
     const QHash<int, QVector<Note>> notes     =
         m_user->notesForFavoritesInCategory(categoryId, limit);
 
